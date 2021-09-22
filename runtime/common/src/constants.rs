@@ -24,4 +24,15 @@ pub mod parachains {
 		pub const KAR_KEY: &[u8] = &[0, 128];
 		pub const KUSD_KEY: &[u8] = &[0, 129];
 	}
+	pub mod snowfork {
+		use codec::{Decode, Encode};
+		use sp_core::H160;
+
+		pub const ID: u32 = 1000;
+		#[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, PartialOrd)]
+		pub enum AssetId {
+			ETH,
+			Token(H160),
+		}
+	}
 }

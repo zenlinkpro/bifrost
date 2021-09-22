@@ -136,6 +136,12 @@ impl<T: Get<ParaId>> Convert<CurrencyId, Option<MultiLocation>> for BifrostCurre
 				Parachain(parachains::karura::ID),
 				GeneralKey(parachains::karura::KUSD_KEY.to_vec()),
 			)),
+			// SnowBridge currencyId types
+			Token(TokenSymbol::ETH) => Some(X3(
+				Parent,
+				Parachain(parachains::snowfork::ID),
+				GeneralKey(parachains::snowfork::AssetId::ETH.encode()),
+			)),
 			_ => None,
 		}
 	}
@@ -165,6 +171,12 @@ impl<T: Get<ParaId>> Convert<MultiLocation, Option<CurrencyId>> for BifrostCurre
 						Some(Token(TokenSymbol::KAR))
 					} else if key == parachains::karura::KUSD_KEY.to_vec() {
 						Some(Stable(TokenSymbol::KUSD))
+					} else {
+						None
+					}
+				} else if id == parachains::snowfork::ID {
+					if key == parachains::snowfork::AssetId::ETH.encode() {
+						Some(Token(TokenSymbol::ETH))
 					} else {
 						None
 					}

@@ -48,6 +48,7 @@ pub trait CurrencyIdExt {
 	fn is_stable(&self) -> bool;
 	fn is_lptoken(&self) -> bool;
 	fn into(symbol: Self::TokenSymbol) -> Self;
+	fn is_erc20_currency_id(&self) -> bool;
 }
 
 pub trait TokenPriceHandler<CurrencyId, Price> {
