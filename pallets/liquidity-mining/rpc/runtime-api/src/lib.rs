@@ -16,48 +16,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#![allow(unused_parens)]
-#![allow(unused_imports)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
-use frame_support::{
-	sp_std::marker::PhantomData,
-	traits::Get,
-	weights::{constants::RocksDbWeight, Weight},
-};
+use codec::Codec;
+use node_primitives::{Balance, CurrencyId};
+use sp_api::decl_runtime_apis;
+use sp_std::vec::Vec;
 
-/// Weight functions needed for the pallet.
-pub trait WeightInfo {
-	fn charge() -> Weight;
-	fn deposit() -> Weight;
-	fn redeem() -> Weight;
-	fn redeem_all() -> Weight;
-	fn volunteer_to_redeem() -> Weight;
-	fn claim() -> Weight;
-}
-
-// For backwards compatibility and tests
-impl WeightInfo for () {
-	fn charge() -> Weight {
-		(50_000_000 as Weight)
-	}
-
-	fn deposit() -> Weight {
-		(50_000_000 as Weight)
-	}
-
-	fn redeem() -> Weight {
-		(50_000_000 as Weight)
-	}
-
-	fn redeem_all() -> Weight {
-		(50_000_000 as Weight)
-	}
-
-	fn volunteer_to_redeem() -> Weight {
-		(50_000_000 as Weight)
-	}
-
-	fn claim() -> Weight {
-		(50_000_000 as Weight)
+decl_runtime_apis! {
+	pub trait LiquidityMiningRuntimeApi<AccountId, PoolId> where
+		AccountId: Codec,
+		PoolId: Codec,
+	{
+		fn get_rewards(
+			who: AccountId,
+			pid: PoolId,
+		) -> Vec<(CurrencyId, Balance)>;
 	}
 }
