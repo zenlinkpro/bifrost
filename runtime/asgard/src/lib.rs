@@ -50,7 +50,7 @@ use sp_arithmetic::Percent;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{
 	u32_trait::{_1, _2, _3, _4, _5},
-	OpaqueMetadata,
+	OpaqueMetadata, H160,
 };
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
@@ -765,14 +765,18 @@ pub type Barrier = (
 	BifrostXcmTransactFilter<Everything>,
 );
 
+parameter_types! {
+	pub VETHContractAddress: H160 = hex!["c3d088842dcf02c13699f936bb83dfbbc6f721ab"].into();
+}
+
 pub type BifrostAssetTransactor = MultiCurrencyAdapter<
 	Currencies,
 	UnknownTokens,
-	BifrostAssetMatcher<CurrencyId, BifrostCurrencyIdConvert<SelfParaChainId>>,
+	BifrostAssetMatcher<CurrencyId, BifrostCurrencyIdConvert<SelfParaChainId, VETHContractAddress>>,
 	AccountId,
 	LocationToAccountId,
 	CurrencyId,
-	BifrostCurrencyIdConvert<SelfParaChainId>,
+	BifrostCurrencyIdConvert<SelfParaChainId, VETHContractAddress>,
 >;
 
 parameter_types! {
@@ -815,7 +819,7 @@ impl TakeRevenue for ToTreasury {
 	fn take_revenue(revenue: MultiAsset) {
 		if let MultiAsset { id: Concrete(location), fun: Fungible(amount) } = revenue {
 			if let Some(currency_id) =
-				BifrostCurrencyIdConvert::<SelfParaChainId>::convert(location)
+				BifrostCurrencyIdConvert::<SelfParaChainId, VETHContractAddress>::convert(location)
 			{
 				let _ = Currencies::deposit(currency_id, &BifrostTreasuryAccount::get(), amount);
 			}
@@ -1021,7 +1025,7 @@ impl orml_xtokens::Config for Runtime {
 	type Event = Event;
 	type Balance = Balance;
 	type CurrencyId = CurrencyId;
-	type CurrencyIdConvert = BifrostCurrencyIdConvert<ParachainInfo>;
+	type CurrencyIdConvert = BifrostCurrencyIdConvert<ParachainInfo, VETHContractAddress>;
 	type AccountIdToMultiLocation = BifrostAccountIdToMultiLocation;
 	type LocationInverter = LocationInverter<Ancestry>;
 	type SelfLocation = SelfLocation;

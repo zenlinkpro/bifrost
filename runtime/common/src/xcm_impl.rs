@@ -108,7 +108,7 @@ impl<T: Get<ParaId>, H: Get<H160>> Convert<CurrencyId, Option<MultiLocation>>
 	for BifrostCurrencyIdConvert<T, H>
 {
 	fn convert(id: CurrencyId) -> Option<MultiLocation> {
-		use CurrencyId::{Erc20, Native, Stable, Token, VSToken};
+		use CurrencyId::{Native, Stable, Token, VSToken};
 		match id {
 			Token(TokenSymbol::KSM) => Some(MultiLocation::parent()),
 			Native(TokenSymbol::ASG) | Native(TokenSymbol::BNC) | VSToken(TokenSymbol::KSM) =>
@@ -136,11 +136,11 @@ impl<T: Get<ParaId>, H: Get<H160>> Convert<CurrencyId, Option<MultiLocation>>
 					GeneralKey(parachains::snowfork::AssetId::ETH.encode()),
 				),
 			)),
-			Erc20(val) => Some(MultiLocation::new(
+			Token(TokenSymbol::VETH) => Some(MultiLocation::new(
 				1,
 				X2(
 					Parachain(parachains::snowfork::ID),
-					GeneralKey(parachains::snowfork::AssetId::Token(val).encode()),
+					GeneralKey(parachains::snowfork::AssetId::Token(H::get()).encode()),
 				),
 			)),
 			_ => None,
@@ -152,7 +152,7 @@ impl<T: Get<ParaId>, H: Get<H160>> Convert<MultiLocation, Option<CurrencyId>>
 	for BifrostCurrencyIdConvert<T, H>
 {
 	fn convert(location: MultiLocation) -> Option<CurrencyId> {
-		use CurrencyId::{Erc20, Native, Stable, Token, VSToken};
+		use CurrencyId::{Native, Stable, Token, VSToken};
 		use TokenSymbol::*;
 
 		if location == MultiLocation::parent() {
@@ -182,13 +182,13 @@ impl<T: Get<ParaId>, H: Get<H160>> Convert<MultiLocation, Option<CurrencyId>>
 						Some(Stable(TokenSymbol::KUSD))
 					} else if key == parachains::snowfork::AssetId::ETH.encode() {
 						Some(Token(TokenSymbol::ETH))
-					} else if key == parachains::snowfork::AssetId::Token(H::get()) {
-						Some(Erc20(H::get()))
+					} else if key == parachains::snowfork::AssetId::Token(H::get()).encode() {
+						Some(Token(TokenSymbol::VETH))
 					} else {
 						None
 					}
 				}
-				_ => {},
+				_ => None,
 			},
 			_ => None,
 		}

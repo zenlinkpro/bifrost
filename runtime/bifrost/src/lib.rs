@@ -734,7 +734,7 @@ impl TakeRevenue for ToTreasury {
 	fn take_revenue(revenue: MultiAsset) {
 		if let MultiAsset { id: Concrete(location), fun: Fungible(amount) } = revenue {
 			if let Some(currency_id) =
-				BifrostCurrencyIdConvert::<SelfParaChainId>::convert(location)
+				BifrostCurrencyIdConvert::<SelfParaChainId, VETHContractAddress>::convert(location)
 			{
 				let _ = Currencies::deposit(currency_id, &BifrostTreasuryAccount::get(), amount);
 			}
@@ -951,7 +951,7 @@ impl orml_xtokens::Config for Runtime {
 	type Event = Event;
 	type Balance = Balance;
 	type CurrencyId = CurrencyId;
-	type CurrencyIdConvert = BifrostCurrencyIdConvert<ParachainInfo>;
+	type CurrencyIdConvert = BifrostCurrencyIdConvert<ParachainInfo, VETHContractAddress>;
 	type AccountIdToMultiLocation = BifrostAccountIdToMultiLocation;
 	type LocationInverter = LocationInverter<Ancestry>;
 	type SelfLocation = SelfLocation;

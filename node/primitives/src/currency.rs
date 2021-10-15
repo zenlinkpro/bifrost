@@ -35,9 +35,6 @@ use crate::{
 };
 pub const BIFROST_PARACHAIN_ID: u32 = 2001; // bifrost parachain id
 
-/// Evm Address.
-pub type EvmAddress = sp_core::H160;
-
 macro_rules! create_currency_id {
 	($(#[$meta:meta])*
 	$vis:vis enum TokenSymbol {
@@ -158,7 +155,7 @@ macro_rules! create_currency_id {
 					| Self::Stable(ts)
 					| Self::VSToken(ts)
 					| Self::VSBond(ts, ..) => ts as u8,
-					Self::LPToken(..) | Self::Erc20(_) => 0u8,
+					Self::LPToken(..) => 0u8,
 				} as u64;
 
 		 		let discr = (c_discr << 8) + t_discr;
@@ -190,8 +187,7 @@ macro_rules! create_currency_id {
 					Self::LPToken(token_symbol_1, token_type_1, token_symbol_2, token_type_2) => {
 						(((*token_symbol_1 as u64) << 16) & 0x0000_0000_00ff_0000) + (((*token_type_1 as u64) << 24) & 0x0000_0000_ff00_0000) +
 						(((*token_symbol_2 as u64) << 32) & 0x0000_00ff_0000_0000) + (((*token_type_2 as u64) << 40) & 0x0000_ff00_0000_0000) + discr
-					},
-					_ => 0 as u64,
+					}
 				}
 			}
 
@@ -238,7 +234,7 @@ macro_rules! create_currency_id {
 					$(CurrencyId::VToken(TokenSymbol::$symbol) => $deci,)*
 					$(CurrencyId::VSToken(TokenSymbol::$symbol) => $deci,)*
 					$(CurrencyId::VSBond(TokenSymbol::$symbol, ..) => $deci,)*
-					CurrencyId::LPToken(..) | CurrencyId::Erc20(..) => 1u8,
+					CurrencyId::LPToken(..) => 1u8,
 				}
 			}
 		}
@@ -273,6 +269,7 @@ create_currency_id! {
 		ETH("Ethereum", 18) = 5,
 		KAR("Karura", 12) = 6,
 		ZLK("Zenlink Network Token", 18) = 7,
+		VETH("ETH Erc20", 18) = 8,
 	}
 }
 
@@ -295,7 +292,6 @@ pub enum CurrencyId {
 	VSBond(TokenSymbol, ParaId, LeasePeriod, LeasePeriod),
 	// [currency1 Tokensymbol, currency1 TokenType, currency2 TokenSymbol, currency2 TokenType]
 	LPToken(TokenSymbol, u8, TokenSymbol, u8),
-	Erc20(EvmAddress),
 }
 
 impl Default for CurrencyId {
@@ -359,7 +355,6 @@ impl CurrencyId {
 			Self::VSToken(..) => 4,
 			Self::VSBond(..) => 5,
 			Self::LPToken(..) => 6,
-			Self::Erc20(..) => 7,
 		}
 	}
 }
@@ -398,10 +393,6 @@ impl CurrencyIdExt for CurrencyId {
 	fn into(symbol: Self::TokenSymbol) -> Self {
 		CurrencyId::Token(symbol)
 	}
-
-	fn is_erc20_currency_id(&self) -> bool {
-		matches!(self, CurrencyId::Erc20(_))
-	}
 }
 
 impl TryFrom<u64> for CurrencyId {
@@ -436,17 +427,6 @@ impl TryFrom<u64> for CurrencyId {
 
 				Ok(Self::LPToken(token_symbol_1, token_type_1, token_symbol_2, token_type_2))
 			},
-			_ => Err(()),
-		}
-	}
-}
-
-impl TryFrom<CurrencyId> for EvmAddress {
-	type Error = ();
-
-	fn try_from(val: CurrencyId) -> Result<Self, Self::Error> {
-		match val {
-			CurrencyId::Erc20(address) => Ok(address),
 			_ => Err(()),
 		}
 	}
