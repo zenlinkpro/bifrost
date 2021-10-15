@@ -77,12 +77,12 @@ use bifrost_flexible_fee::{
 };
 use bifrost_runtime_common::{
 	constants::parachains,
-	create_x2_multilocation,
 	xcm_impl::{
 		BifrostAccountIdToMultiLocation, BifrostAssetMatcher, BifrostCurrencyIdConvert,
-		BifrostFilteredAssets, BifrostXcmTransactFilter, MultiWeightTraders,
+		BifrostFilteredAssets, BifrostXcmTransactFilter,
 	},
-	EnsureRootOrAllTechnicalCommittee, SlowAdjustingFeeUpdate,
+	CouncilCollective, EnsureRootOrAllTechnicalCommittee, MoreThanHalfCouncil,
+	SlowAdjustingFeeUpdate, TechnicalCollective,
 };
 use codec::{Decode, Encode, MaxEncodedLen};
 use constants::{currency::*, time::*};
@@ -92,9 +92,10 @@ use frame_support::{
 	traits::{EnsureOrigin, OnRuntimeUpgrade},
 };
 pub use node_primitives::{
-	AccountId, Amount, Balance, BlockNumber, CurrencyId, ExtraFeeName, Moment, Nonce, ParaId,
-	ParachainDerivedProxyAccountType, ParachainTransactProxyType, ParachainTransactType, PoolId,
-	RpcContributionStatus, TokenSymbol, TransferOriginType, XcmBaseWeight,
+	traits::CheckSubAccount, AccountId, Amount, Balance, BlockNumber, CurrencyId, ExtraFeeName,
+	Moment, Nonce, ParaId, ParachainDerivedProxyAccountType, ParachainTransactProxyType,
+	ParachainTransactType, PoolId, RpcContributionStatus, TokenSymbol, TransferOriginType,
+	XcmBaseWeight,
 };
 // orml imports
 use orml_currencies::BasicCurrencyAdapter;
@@ -104,20 +105,20 @@ use pallet_xcm::XcmPassthrough;
 use polkadot_parachain::primitives::Sibling;
 use sp_runtime::traits::ConvertInto;
 use static_assertions::const_assert;
-use xcm::v0::{BodyId, Junction::*, MultiAsset, MultiLocation, MultiLocation::*, NetworkId};
+use xcm::latest::prelude::*;
 use xcm_builder::{
 	AccountId32Aliases, AllowTopLevelPaidExecutionFrom, CurrencyAdapter, EnsureXcmOrigin,
-	FixedRateOfConcreteFungible, FixedWeightBounds, IsConcrete, LocationInverter,
-	ParentAsSuperuser, ParentIsDefault, RelayChainAsNative, SiblingParachainAsNative,
-	SiblingParachainConvertsVia, SignedAccountId32AsNative, SignedToAccountId32,
-	SovereignSignedViaLocation, TakeRevenue, TakeWeightCredit,
+	FixedRateOfFungible, FixedWeightBounds, IsConcrete, LocationInverter, ParentAsSuperuser,
+	ParentIsDefault, RelayChainAsNative, SiblingParachainAsNative, SiblingParachainConvertsVia,
+	SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation, TakeRevenue,
+	TakeWeightCredit,
 };
 use xcm_executor::{Config, XcmExecutor};
 use xcm_support::BifrostXcmAdaptor;
 // zenlink imports
 use zenlink_protocol::{
-	make_x2_location, AssetBalance, AssetId, LocalAssetHandler, MultiAssetsHandler, PairInfo,
-	ZenlinkMultiAssets,
+	make_x2_location, AssetBalance, AssetId as ZenlinkAssetId, LocalAssetHandler,
+	MultiAssetsHandler, PairInfo, ZenlinkMultiAssets,
 };
 
 mod weights;
@@ -154,8 +155,8 @@ const AVERAGE_ON_INITIALIZE_RATIO: Perbill = Perbill::from_percent(10);
 /// We allow `Normal` extrinsics to fill up the block up to 75%, the rest can be used
 /// by  Operational  extrinsics.
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
-/// We allow for 2 seconds of compute with a 6 second average block time.
-const MAXIMUM_BLOCK_WEIGHT: Weight = 2 * WEIGHT_PER_SECOND;
+/// We allow for .5 seconds of compute with a 12 second average block time.
+const MAXIMUM_BLOCK_WEIGHT: Weight = WEIGHT_PER_SECOND / 2;
 
 parameter_types! {
 	pub const BlockHashCount: BlockNumber = 250;
@@ -188,6 +189,21 @@ parameter_types! {
 	pub const RelayCurrencyId: CurrencyId = CurrencyId::Token(TokenSymbol::KSM);
 	pub const StableCurrencyId: CurrencyId = CurrencyId::Stable(TokenSymbol::KUSD);
 	pub SelfParaId: u32 = ParachainInfo::parachain_id().into();
+}
+
+parameter_types! {
+	pub const TreasuryPalletId: PalletId = PalletId(*b"bf/trsry");
+	pub const BifrostCrowdloanId: PalletId = PalletId(*b"bf/salp#");
+	pub const LiquidityMiningPalletId: PalletId = PalletId(*b"bf/lm###");
+	pub const LighteningRedeemPalletId: PalletId = PalletId(*b"bf/ltnrd");
+}
+
+pub fn get_all_pallet_accounts() -> Vec<AccountId> {
+	vec![
+		TreasuryPalletId::get().into_account(),
+		BifrostCrowdloanId::get().into_account(),
+		LighteningRedeemPalletId::get().into_account(),
+	]
 }
 
 impl frame_system::Config for Runtime {
@@ -242,10 +258,10 @@ impl pallet_timestamp::Config for Runtime {
 }
 
 parameter_types! {
-	pub const ExistentialDeposit: u128 = 1 * MILLIBNC;
-	pub const TransferFee: u128 = 1 * MILLIBNC;
-	pub const CreationFee: u128 = 1 * MILLIBNC;
-	pub const TransactionByteFee: u128 = 1 * MICROBNC;
+	pub const ExistentialDeposit: Balance = 10 * MILLIBNC;
+	pub const TransferFee: Balance = 1 * MILLIBNC;
+	pub const CreationFee: Balance = 1 * MILLIBNC;
+	pub const TransactionByteFee: Balance = 1 * MICROBNC;
 	pub const MaxLocks: u32 = 50;
 	pub const MaxReserves: u32 = 50;
 }
@@ -320,7 +336,7 @@ impl InstanceFilter<Call> for ProxyType {
 				Call::Democracy(..) |
 				Call::Council(..) |
 				Call::TechnicalCommittee(..) |
-				Call::Elections(..) |
+				Call::PhragmenElection(..) |
 				Call::TechnicalMembership(..) |
 				Call::Treasury(..) |
 				Call::Bounties(..) |
@@ -336,9 +352,9 @@ impl InstanceFilter<Call> for ProxyType {
 				c,
 				Call::Democracy(..) |
 					Call::Council(..) | Call::TechnicalCommittee(..) |
-					Call::Elections(..) | Call::Treasury(..) |
-					Call::Bounties(..) | Call::Tips(..) |
-					Call::Utility(..)
+					Call::PhragmenElection(..) |
+					Call::Treasury(..) | Call::Bounties(..) |
+					Call::Tips(..) | Call::Utility(..)
 			),
 			ProxyType::CancelProxy => {
 				matches!(c, Call::Proxy(pallet_proxy::Call::reject_announcement(..)))
@@ -416,12 +432,11 @@ impl pallet_balances::Config for Runtime {
 }
 
 parameter_types! {
-	pub const CouncilMotionDuration: BlockNumber = 3 * DAYS;
+	pub const CouncilMotionDuration: BlockNumber = 2 * DAYS;
 	pub const CouncilMaxProposals: u32 = 100;
 	pub const CouncilMaxMembers: u32 = 100;
 }
 
-type CouncilCollective = pallet_collective::Instance1;
 impl pallet_collective::Config<CouncilCollective> for Runtime {
 	type DefaultVote = pallet_collective::PrimeDefaultVote;
 	type Event = Event;
@@ -434,46 +449,11 @@ impl pallet_collective::Config<CouncilCollective> for Runtime {
 }
 
 parameter_types! {
-	pub const CandidacyBond: Balance = 100 * CENTS;
-	// 1 storage item created, key size is 32 bytes, value size is 16+16.
-	pub const VotingBondBase: Balance = deposit(1, 64);
-	// additional data per vote is 32 bytes (account id).
-	pub const VotingBondFactor: Balance = deposit(0, 32);
-	/// Daily council elections
-	pub const TermDuration: BlockNumber = 24 * HOURS;
-	pub const DesiredMembers: u32 = 19;
-	pub const DesiredRunnersUp: u32 = 19;
-	pub const PhragmenElectionPalletId: LockIdentifier = *b"phrelect";
-}
-
-// Make sure that there are no more than MaxMembers members elected via phragmen.
-const_assert!(DesiredMembers::get() <= CouncilMaxMembers::get());
-
-impl pallet_elections_phragmen::Config for Runtime {
-	type CandidacyBond = CandidacyBond;
-	type ChangeMembers = Council;
-	type Currency = Balances;
-	type CurrencyToVote = frame_support::traits::U128CurrencyToVote;
-	type DesiredMembers = DesiredMembers;
-	type DesiredRunnersUp = DesiredRunnersUp;
-	type Event = Event;
-	type InitializeMembers = Council;
-	type KickedMember = Treasury;
-	type LoserCandidate = Treasury;
-	type PalletId = PhragmenElectionPalletId;
-	type TermDuration = TermDuration;
-	type VotingBondBase = VotingBondBase;
-	type VotingBondFactor = VotingBondFactor;
-	type WeightInfo = pallet_elections_phragmen::weights::SubstrateWeight<Runtime>;
-}
-
-parameter_types! {
-	pub const TechnicalMotionDuration: BlockNumber = 3 * DAYS;
+	pub const TechnicalMotionDuration: BlockNumber = 2 * DAYS;
 	pub const TechnicalMaxProposals: u32 = 100;
 	pub const TechnicalMaxMembers: u32 = 100;
 }
 
-type TechnicalCollective = pallet_collective::Instance2;
 impl pallet_collective::Config<TechnicalCollective> for Runtime {
 	type DefaultVote = pallet_collective::PrimeDefaultVote;
 	type Event = Event;
@@ -484,12 +464,6 @@ impl pallet_collective::Config<TechnicalCollective> for Runtime {
 	type Proposal = Call;
 	type WeightInfo = pallet_collective::weights::SubstrateWeight<Runtime>;
 }
-
-type MoreThanHalfCouncil = EnsureOneOf<
-	AccountId,
-	EnsureRoot<AccountId>,
-	pallet_collective::EnsureProportionMoreThan<_1, _2, AccountId, CouncilCollective>,
->;
 
 impl pallet_membership::Config<pallet_membership::Instance1> for Runtime {
 	type AddOrigin = MoreThanHalfCouncil;
@@ -518,14 +492,47 @@ impl pallet_membership::Config<pallet_membership::Instance2> for Runtime {
 }
 
 parameter_types! {
+	pub const CandidacyBond: Balance = 100 * CENTS;
+	// 1 storage item created, key size is 32 bytes, value size is 16+16.
+	pub const VotingBondBase: Balance = deposit(1, 64);
+	// additional data per vote is 32 bytes (account id).
+	pub const VotingBondFactor: Balance = deposit(0, 32);
+	/// Daily council elections
+	pub const TermDuration: BlockNumber = 24 * HOURS;
+	pub const DesiredMembers: u32 = 7;
+	pub const DesiredRunnersUp: u32 = 7;
+	pub const PhragmenElectionPalletId: LockIdentifier = *b"phrelect";
+}
+
+// Make sure that there are no more than MaxMembers members elected via phragmen.
+const_assert!(DesiredMembers::get() <= CouncilMaxMembers::get());
+
+impl pallet_elections_phragmen::Config for Runtime {
+	type CandidacyBond = CandidacyBond;
+	type ChangeMembers = Council;
+	type Currency = Balances;
+	type CurrencyToVote = frame_support::traits::U128CurrencyToVote;
+	type DesiredMembers = DesiredMembers;
+	type DesiredRunnersUp = DesiredRunnersUp;
+	type Event = Event;
+	type InitializeMembers = Council;
+	type KickedMember = Treasury;
+	type LoserCandidate = Treasury;
+	type PalletId = PhragmenElectionPalletId;
+	type TermDuration = TermDuration;
+	type VotingBondBase = VotingBondBase;
+	type VotingBondFactor = VotingBondFactor;
+	type WeightInfo = pallet_elections_phragmen::weights::SubstrateWeight<Runtime>;
+}
+
+parameter_types! {
 	pub const LaunchPeriod: BlockNumber = 7 * DAYS;
 	pub const VotingPeriod: BlockNumber = 7 * DAYS;
 	pub const FastTrackVotingPeriod: BlockNumber = 3 * HOURS;
-	pub const MinimumDeposit: Balance = 50 * DOLLARS;
-	pub const EnactmentPeriod: BlockNumber = 8 * DAYS;
+	pub const MinimumDeposit: Balance = 100 * DOLLARS;
+	pub const EnactmentPeriod: BlockNumber = 2 * DAYS;
 	pub const CooloffPeriod: BlockNumber = 7 * DAYS;
-	// One cent: $10,000 / MB
-	pub const PreimageByteDeposit: Balance = 100 * MILLICENTS;
+	pub const PreimageByteDeposit: Balance = 10 * MILLICENTS;
 	pub const InstantAllowed: bool = true;
 	pub const MaxVotes: u32 = 100;
 	pub const MaxProposals: u32 = 100;
@@ -574,8 +581,7 @@ impl pallet_democracy::Config for Runtime {
 	type PreimageByteDeposit = PreimageByteDeposit;
 	type Proposal = Call;
 	type Scheduler = Scheduler;
-	// NOTE: Treasury replaced by `()`.
-	type Slash = ();
+	type Slash = Treasury;
 	// Any single technical committee member may veto a coming council proposal, however they can
 	// only do it once and it lasts only for the cool-off period.
 	type VetoOrigin = pallet_collective::EnsureMember<AccountId, TechnicalCollective>;
@@ -585,10 +591,9 @@ impl pallet_democracy::Config for Runtime {
 
 parameter_types! {
 	pub const ProposalBond: Permill = Permill::from_percent(5);
-	pub const ProposalBondMinimum: Balance = 50 * DOLLARS;
+	pub const ProposalBondMinimum: Balance = 100 * DOLLARS;
 	pub const SpendPeriod: BlockNumber = 6 * DAYS;
-	pub const Burn: Permill = Permill::from_perthousand(2);
-	pub const TreasuryPalletId: PalletId = PalletId(*b"py/trsry");
+	pub const Burn: Permill = Permill::from_perthousand(0);
 
 	pub const TipCountdown: BlockNumber = 1 * DAYS;
 	pub const TipFindersFee: Percent = Percent::from_percent(20);
@@ -645,7 +650,7 @@ impl pallet_tips::Config for Runtime {
 	type TipCountdown = TipCountdown;
 	type TipFindersFee = TipFindersFee;
 	type TipReportDepositBase = TipReportDepositBase;
-	type Tippers = Elections;
+	type Tippers = PhragmenElection;
 	type WeightInfo = pallet_tips::weights::SubstrateWeight<Runtime>;
 }
 
@@ -685,10 +690,11 @@ impl cumulus_pallet_aura_ext::Config for Runtime {}
 impl pallet_randomness_collective_flip::Config for Runtime {}
 
 parameter_types! {
-	pub const RelayLocation: MultiLocation = X1(Parent);
+	pub const KsmLocation: MultiLocation = MultiLocation::parent();
+	pub const RelayNetwork: NetworkId = NetworkId::Kusama;
 	pub RelayChainOrigin: Origin = cumulus_pallet_xcm::Origin::Relay.into();
 	pub SelfParaChainId: CumulusParaId = ParachainInfo::parachain_id();
-	pub Ancestry: MultiLocation = X1(Parachain(ParachainInfo::parachain_id().into()));
+	pub Ancestry: MultiLocation = Parachain(ParachainInfo::parachain_id().into()).into();
 }
 
 /// Type for specifying how a `MultiLocation` can be converted into an `AccountId`. This is used
@@ -708,7 +714,7 @@ pub type LocalAssetTransactor = CurrencyAdapter<
 	// Use this currency:
 	Balances,
 	// Use this currency when it is a fungible asset matching the given location or name:
-	IsConcrete<RelayLocation>,
+	IsConcrete<KsmLocation>,
 	// Do a simple punn to convert an AccountId32 MultiLocation into a native chain account ID:
 	LocationToAccountId,
 	// Our chain's account ID type (we can't get away without mentioning it explicitly):
@@ -747,8 +753,9 @@ parameter_types! {
 }
 
 match_type! {
-	pub type ParentOrParentsUnitPlurality: impl Contains<MultiLocation> = {
-		X1(Parent) | X2(Parent, Plurality { id: BodyId::Unit, .. })
+	pub type ParentOrParentsExecutivePlurality: impl Contains<MultiLocation> = {
+		MultiLocation { parents: 1, interior: Here } |
+		MultiLocation { parents: 1, interior: X1(Plurality { id: BodyId::Executive, .. }) }
 	};
 }
 
@@ -769,32 +776,60 @@ pub type BifrostAssetTransactor = MultiCurrencyAdapter<
 >;
 
 parameter_types! {
-	pub KsmPerSecond: (MultiLocation, u128) = (X1(Parent), ksm_per_second());
-	// BNC:KSM = 80:1
-	pub BncPerSecond: (MultiLocation, u128) = (X3(Parent, Parachain(SelfParaId::get()), GeneralKey(NativeCurrencyId::get().encode())), ksm_per_second().saturating_mul(80));
-	// KAR:KSM = 100:1
-	pub KarPerSecond: (MultiLocation, u128) = (X3(Parent, Parachain(parachains::karura::ID), GeneralKey(parachains::karura::KAR_KEY.to_vec())), ksm_per_second().saturating_mul(100));
-	// KUSD:KSM = 400:1
-	pub KusdPerSecond: (MultiLocation, u128) = (X3(Parent, Parachain(parachains::karura::ID), GeneralKey(parachains::karura::KUSD_KEY.to_vec())), ksm_per_second().saturating_mul(400));
+	pub KsmPerSecond: (AssetId, u128) = (MultiLocation::parent().into(), ksm_per_second());
+	pub VsksmPerSecond: (AssetId, u128) = (
+		MultiLocation::new(
+			1,
+			X2(Parachain(SelfParaId::get()), GeneralKey(CurrencyId::VSToken(TokenSymbol::KSM).encode()))
+		).into(),
+		ksm_per_second()
+	);
+	pub BncPerSecond: (AssetId, u128) = (
+		MultiLocation::new(
+			1,
+			X2(Parachain(SelfParaId::get()), GeneralKey(NativeCurrencyId::get().encode()))
+		).into(),
+		// BNC:KSM = 80:1
+		ksm_per_second() * 80
+	);
+	pub KarPerSecond: (AssetId, u128) = (
+		MultiLocation::new(
+			1,
+			X2(Parachain(parachains::karura::ID), GeneralKey(parachains::karura::KAR_KEY.to_vec()))
+		).into(),
+		// KAR:KSM = 100:1
+		ksm_per_second() * 100
+	);
+	pub KusdPerSecond: (AssetId, u128) = (
+		MultiLocation::new(
+			1,
+			X2(Parachain(parachains::karura::ID), GeneralKey(parachains::karura::KUSD_KEY.to_vec()))
+		).into(),
+		// kUSD:KSM = 400:1
+		ksm_per_second() * 400
+	);
 }
 
 pub struct ToTreasury;
 impl TakeRevenue for ToTreasury {
 	fn take_revenue(revenue: MultiAsset) {
-		if let MultiAsset::ConcreteFungible { id, amount } = revenue {
-			if let Some(currency_id) = BifrostCurrencyIdConvert::<SelfParaChainId>::convert(id) {
+		if let MultiAsset { id: Concrete(location), fun: Fungible(amount) } = revenue {
+			if let Some(currency_id) =
+				BifrostCurrencyIdConvert::<SelfParaChainId>::convert(location)
+			{
 				let _ = Currencies::deposit(currency_id, &BifrostTreasuryAccount::get(), amount);
 			}
 		}
 	}
 }
 
-pub type Trader = MultiWeightTraders<
-	FixedRateOfConcreteFungible<KsmPerSecond, ToTreasury>,
-	FixedRateOfConcreteFungible<BncPerSecond, ToTreasury>,
-	FixedRateOfConcreteFungible<KarPerSecond, ToTreasury>,
-	FixedRateOfConcreteFungible<KusdPerSecond, ToTreasury>,
->;
+pub type Trader = (
+	FixedRateOfFungible<KsmPerSecond, ToTreasury>,
+	FixedRateOfFungible<VsksmPerSecond, ToTreasury>,
+	FixedRateOfFungible<BncPerSecond, ToTreasury>,
+	FixedRateOfFungible<KarPerSecond, ToTreasury>,
+	FixedRateOfFungible<KusdPerSecond, ToTreasury>,
+);
 
 pub struct XcmConfig;
 impl Config for XcmConfig {
@@ -806,6 +841,7 @@ impl Config for XcmConfig {
 	type LocationInverter = LocationInverter<Ancestry>;
 	type OriginConverter = XcmOriginToTransactDispatchOrigin;
 	type ResponseHandler = ();
+	type SubscriptionService = PolkadotXcm;
 	type Trader = Trader;
 	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
 	type XcmSender = XcmRouter; // Don't handle responses for now.
@@ -818,7 +854,7 @@ pub type LocalOriginToLocation = SignedToAccountId32<Origin, AccountId, AnyNetwo
 /// queues.
 pub type XcmRouter = (
 	// Two routers - use UMP to communicate with the relay chain:
-	cumulus_primitives_utility::ParentAsUmp<ParachainSystem>,
+	cumulus_primitives_utility::ParentAsUmp<ParachainSystem, ()>,
 	// ..and XCMP to communicate with the sibling chains.
 	XcmpQueue,
 );
@@ -844,6 +880,7 @@ impl cumulus_pallet_xcm::Config for Runtime {
 impl cumulus_pallet_xcmp_queue::Config for Runtime {
 	type ChannelInfo = ParachainSystem;
 	type Event = Event;
+	type VersionWrapper = ();
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 }
 
@@ -916,6 +953,94 @@ impl pallet_collator_selection::Config for Runtime {
 
 // culumus runtime end
 
+impl pallet_vesting::Config for Runtime {
+	type BlockNumberToBalance = ConvertInto;
+	type Currency = Balances;
+	type Event = Event;
+	type MinVestedTransfer = ExistentialDeposit;
+	type WeightInfo = weights::pallet_vesting::WeightInfo<Runtime>;
+}
+
+// orml runtime start
+
+impl orml_currencies::Config for Runtime {
+	type Event = Event;
+	type GetNativeCurrencyId = NativeCurrencyId;
+	type MultiCurrency = Tokens;
+	type NativeCurrency = BasicCurrencyAdapter<Runtime, Balances, Amount, BlockNumber>;
+	type WeightInfo = ();
+}
+
+orml_traits::parameter_type_with_key! {
+	pub ExistentialDeposits: |currency_id: CurrencyId| -> Balance {
+		match currency_id {
+			&CurrencyId::Native(TokenSymbol::ASG) => 10 * MILLIBNC,
+			&CurrencyId::Stable(TokenSymbol::KUSD) => 10 * MILLICENTS,
+			&CurrencyId::Token(TokenSymbol::KSM) => 10 * MILLICENTS,
+			&CurrencyId::Token(TokenSymbol::KAR) => 10 * MILLICENTS,
+			&CurrencyId::Token(TokenSymbol::ZLK) => 1_000_000_000_000,	// ZLK has a decimals of 10e18
+			&CurrencyId::VSToken(TokenSymbol::KSM) => 10 * MILLICENTS,
+			&CurrencyId::VSBond(TokenSymbol::ASG, ..) => 10 * MILLICENTS,
+			&CurrencyId::VSBond(TokenSymbol::KSM, ..) => 10 * MILLICENTS,
+			&CurrencyId::VSBond(TokenSymbol::BNC, ..) => 10 * MILLICENTS,
+			&CurrencyId::LPToken(..) => 10 * MILLICENTS,
+			_ => Balance::max_value() // unsupported
+		}
+	};
+}
+
+pub struct DustRemovalWhitelist;
+impl Contains<AccountId> for DustRemovalWhitelist {
+	fn contains(a: &AccountId) -> bool {
+		get_all_pallet_accounts().contains(a) ||
+			LiquidityMiningPalletId::get().check_sub_account::<PoolId>(a)
+	}
+}
+
+parameter_types! {
+	pub BifrostTreasuryAccount: AccountId = TreasuryPalletId::get().into_account();
+}
+
+impl orml_tokens::Config for Runtime {
+	type Amount = Amount;
+	type Balance = Balance;
+	type CurrencyId = CurrencyId;
+	type DustRemovalWhitelist = DustRemovalWhitelist;
+	type Event = Event;
+	type ExistentialDeposits = ExistentialDeposits;
+	type MaxLocks = MaxLocks;
+	type OnDust = orml_tokens::TransferDust<Runtime, BifrostTreasuryAccount>;
+	type WeightInfo = ();
+}
+
+parameter_types! {
+	pub SelfLocation: MultiLocation = MultiLocation::new(1, X1(Parachain(ParachainInfo::get().into())));
+}
+
+impl orml_xtokens::Config for Runtime {
+	type Event = Event;
+	type Balance = Balance;
+	type CurrencyId = CurrencyId;
+	type CurrencyIdConvert = BifrostCurrencyIdConvert<ParachainInfo>;
+	type AccountIdToMultiLocation = BifrostAccountIdToMultiLocation;
+	type LocationInverter = LocationInverter<Ancestry>;
+	type SelfLocation = SelfLocation;
+	type XcmExecutor = XcmExecutor<XcmConfig>;
+	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
+	type BaseXcmWeight = XcmWeight;
+}
+
+impl orml_unknown_tokens::Config for Runtime {
+	type Event = Event;
+}
+
+impl orml_xcm::Config for Runtime {
+	type Event = Event;
+	type SovereignOrigin = MoreThanHalfCouncil;
+}
+
+// orml runtime end
+
 // bifrost runtime start
 
 parameter_types! {
@@ -928,31 +1053,6 @@ impl bifrost_vtoken_mint::Config for Runtime {
 	type MinterReward = MinterReward;
 	type MultiCurrency = Currencies;
 	type WeightInfo = weights::bifrost_vtoken_mint::WeightInfo<Runtime>;
-}
-
-orml_traits::parameter_type_with_key! {
-	pub ExistentialDeposits: |currency_id: CurrencyId| -> Balance {
-		match currency_id {
-			&CurrencyId::Native(TokenSymbol::ASG) => 1 * CENTS,
-			_ => Zero::zero(),
-		}
-	};
-}
-
-parameter_types! {
-	pub BifrostTreasuryAccount: AccountId = TreasuryPalletId::get().into_account();
-}
-
-impl orml_tokens::Config for Runtime {
-	type Amount = Amount;
-	type Balance = Balance;
-	type CurrencyId = CurrencyId;
-	type DustRemovalWhitelist = ();
-	type Event = Event;
-	type ExistentialDeposits = ExistentialDeposits;
-	type MaxLocks = MaxLocks;
-	type OnDust = orml_tokens::TransferDust<Runtime, BifrostTreasuryAccount>;
-	type WeightInfo = ();
 }
 
 // Aggregate name getter to get fee names if the call needs to pay extra fees.
@@ -1058,9 +1158,18 @@ impl EnsureOrigin<Origin> for EnsureConfirmAsMultiSig {
 	}
 }
 
+pub fn create_x2_multilocation(index: u16) -> MultiLocation {
+	MultiLocation::new(
+		1,
+		X1(AccountId32 {
+			network: NetworkId::Any,
+			id: Utility::derivative_account_id(ParachainInfo::get().into_account(), index).into(),
+		}),
+	)
+}
+
 parameter_types! {
-	pub const MinContribution: Balance = 1 * DOLLARS;
-	pub const BifrostCrowdloanId: PalletId = PalletId(*b"bf/salp#");
+	pub const MinContribution: Balance = DOLLARS / 10;
 	pub const RemoveKeysLimit: u32 = 500;
 	pub const VSBondValidPeriod: BlockNumber = 30 * DAYS;
 	pub const ReleaseCycle: BlockNumber = 1 * DAYS;
@@ -1076,14 +1185,14 @@ parameter_types! {
 		hex!["8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48"].into(),  // bob
 		hex!["90b5ab205c6974c9ea841be688864633dc9ca8a357843eeacf2314649965fe22"].into(),  // charlie
 	],2);
-	pub RelaychainSovereignSubAccount: MultiLocation = create_x2_multilocation(Utility::derivative_account_id(ParachainInfo::get().into_account(), ParachainDerivedProxyAccountType::Salp as u16));
+	pub RelaychainSovereignSubAccount: MultiLocation = create_x2_multilocation(ParachainDerivedProxyAccountType::Salp as u16);
 	pub SalpTransactType: ParachainTransactType = ParachainTransactType::Xcm;
 	pub SalpProxyType: ParachainTransactProxyType = ParachainTransactProxyType::Derived;
 }
 
 impl bifrost_salp::Config for Runtime {
 	type BancorPool = Bancor;
-	type BifrostXcmExecutor = BifrostXcmAdaptor<XcmRouter, XcmWeight, IdentityFee<Balance>>;
+	type BifrostXcmExecutor = BifrostXcmAdaptor<XcmRouter, XcmWeight, WeightToFee, SelfParaId>;
 	type Event = Event;
 	type LeasePeriod = LeasePeriod;
 	type MinContribution = MinContribution;
@@ -1109,6 +1218,7 @@ impl bifrost_salp::Config for Runtime {
 	type SovereignSubAccountLocation = RelaychainSovereignSubAccount;
 	type TransactProxyType = SalpProxyType;
 	type TransactType = SalpTransactType;
+	type RelayNetwork = RelayNetwork;
 }
 
 parameter_types! {
@@ -1143,26 +1253,41 @@ parameter_types! {
 	pub const MaximumDepositInPool: Balance = 1_000_000_000 * DOLLARS;
 	pub const MinimumDepositOfUser: Balance = 1_000_000;
 	pub const MinimumRewardPerBlock: Balance = 1_000;
-	pub const MinimumDuration: BlockNumber = DAYS;
-	pub const MaximumApproved: u32 = 8;
+	pub const MinimumDuration: BlockNumber = HOURS;
 	pub const MaximumOptionRewards: u32 = 7;
-	pub const LiquidityMiningPalletId: PalletId = PalletId(*b"bf/lm###");
+	pub const MaximumCharged: u32 = 32;
 }
 
 impl bifrost_liquidity_mining::Config for Runtime {
 	type Event = Event;
-	type ControlOrigin =
-		pallet_collective::EnsureProportionAtLeast<_2, _3, AccountId, TechnicalCollective>;
+	type ControlOrigin = MoreThanHalfCouncil;
 	type MultiCurrency = Currencies;
 	type RelayChainTokenSymbol = RelayChainTokenSymbol;
 	type MaximumDepositInPool = MaximumDepositInPool;
 	type MinimumDepositOfUser = MinimumDepositOfUser;
 	type MinimumRewardPerBlock = MinimumRewardPerBlock;
 	type MinimumDuration = MinimumDuration;
-	type MaximumCharged = MaximumApproved;
+	type MaximumCharged = MaximumCharged;
 	type MaximumOptionRewards = MaximumOptionRewards;
 	type PalletId = LiquidityMiningPalletId;
 	type WeightInfo = ();
+}
+
+impl bifrost_token_issuer::Config for Runtime {
+	type Event = Event;
+	type MultiCurrency = Currencies;
+	type ControlOrigin =
+		EnsureOneOf<AccountId, MoreThanHalfCouncil, EnsureRootOrAllTechnicalCommittee>;
+	type WeightInfo = weights::bifrost_token_issuer::WeightInfo<Runtime>;
+}
+
+impl bifrost_lightening_redeem::Config for Runtime {
+	type Event = Event;
+	type MultiCurrency = Tokens;
+	type ControlOrigin =
+		EnsureOneOf<AccountId, MoreThanHalfCouncil, EnsureRootOrAllTechnicalCommittee>;
+	type PalletId = LighteningRedeemPalletId;
+	type WeightInfo = weights::bifrost_lightening_redeem::WeightInfo<Runtime>;
 }
 
 // bifrost runtime end
@@ -1217,17 +1342,17 @@ impl<Local, AccountId> LocalAssetHandler<AccountId> for LocalAssetAdaptor<Local>
 where
 	Local: MultiCurrency<AccountId, CurrencyId = CurrencyId>,
 {
-	fn local_balance_of(asset_id: AssetId, who: &AccountId) -> AssetBalance {
+	fn local_balance_of(asset_id: ZenlinkAssetId, who: &AccountId) -> AssetBalance {
 		let currency_id: CurrencyId = asset_id.try_into().unwrap_or_default();
 		Local::free_balance(currency_id, &who).saturated_into()
 	}
 
-	fn local_total_supply(asset_id: AssetId) -> AssetBalance {
+	fn local_total_supply(asset_id: ZenlinkAssetId) -> AssetBalance {
 		let currency_id: CurrencyId = asset_id.try_into().unwrap_or_default();
 		Local::total_issuance(currency_id).saturated_into()
 	}
 
-	fn local_is_exists(asset_id: AssetId) -> bool {
+	fn local_is_exists(asset_id: ZenlinkAssetId) -> bool {
 		let currency_id: Result<CurrencyId, ()> = asset_id.try_into();
 		match currency_id {
 			Ok(_) => true,
@@ -1236,7 +1361,7 @@ where
 	}
 
 	fn local_transfer(
-		asset_id: AssetId,
+		asset_id: ZenlinkAssetId,
 		origin: &AccountId,
 		target: &AccountId,
 		amount: AssetBalance,
@@ -1248,7 +1373,7 @@ where
 	}
 
 	fn local_deposit(
-		asset_id: AssetId,
+		asset_id: ZenlinkAssetId,
 		origin: &AccountId,
 		amount: AssetBalance,
 	) -> Result<AssetBalance, DispatchError> {
@@ -1258,7 +1383,7 @@ where
 	}
 
 	fn local_withdraw(
-		asset_id: AssetId,
+		asset_id: ZenlinkAssetId,
 		origin: &AccountId,
 		amount: AssetBalance,
 	) -> Result<AssetBalance, DispatchError> {
@@ -1269,58 +1394,7 @@ where
 	}
 }
 
-parameter_types! {
-	pub const MinVestedTransfer: Balance = 100 * CENTS;
-}
-
-impl pallet_vesting::Config for Runtime {
-	type BlockNumberToBalance = ConvertInto;
-	type Currency = Balances;
-	type Event = Event;
-	type MinVestedTransfer = MinVestedTransfer;
-	type WeightInfo = weights::pallet_vesting::WeightInfo<Runtime>;
-}
-
 // zenlink runtime end
-
-// orml runtime start
-
-pub type BifrostToken = BasicCurrencyAdapter<Runtime, Balances, Amount, BlockNumber>;
-
-impl orml_currencies::Config for Runtime {
-	type Event = Event;
-	type GetNativeCurrencyId = NativeCurrencyId;
-	type MultiCurrency = Tokens;
-	type NativeCurrency = BifrostToken;
-	type WeightInfo = ();
-}
-
-parameter_types! {
-	pub SelfLocation: MultiLocation = X2(Parent, Parachain(ParachainInfo::get().into()));
-}
-
-impl orml_xtokens::Config for Runtime {
-	type Event = Event;
-	type Balance = Balance;
-	type CurrencyId = CurrencyId;
-	type CurrencyIdConvert = BifrostCurrencyIdConvert<ParachainInfo>;
-	type AccountIdToMultiLocation = BifrostAccountIdToMultiLocation;
-	type SelfLocation = SelfLocation;
-	type XcmExecutor = XcmExecutor<XcmConfig>;
-	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
-	type BaseXcmWeight = XcmWeight;
-}
-
-impl orml_unknown_tokens::Config for Runtime {
-	type Event = Event;
-}
-
-impl orml_xcm::Config for Runtime {
-	type Event = Event;
-	type SovereignOrigin = MoreThanHalfCouncil;
-}
-
-// orml runtime end
 
 construct_runtime! {
 	pub enum Runtime where
@@ -1352,12 +1426,9 @@ construct_runtime! {
 		Democracy: pallet_democracy::{Pallet, Call, Storage, Config<T>, Event<T>} = 30,
 		Council: pallet_collective::<Instance1>::{Pallet, Call, Storage, Origin<T>, Event<T>, Config<T>} = 31,
 		TechnicalCommittee: pallet_collective::<Instance2>::{Pallet, Call, Storage, Origin<T>, Event<T>, Config<T>} = 32,
-		Elections: pallet_elections_phragmen::{Pallet, Call, Storage, Event<T>, Config<T>} = 33,
+		PhragmenElection: pallet_elections_phragmen::{Pallet, Call, Storage, Event<T>, Config<T>} = 33,
 		CouncilMembership: pallet_membership::<Instance1>::{Pallet, Call, Storage, Event<T>, Config<T>} = 34,
 		TechnicalMembership: pallet_membership::<Instance2>::{Pallet, Call, Storage, Event<T>, Config<T>} = 35,
-		Treasury: pallet_treasury::{Pallet, Call, Storage, Config, Event<T>} = 36,
-		Bounties: pallet_bounties::{Pallet, Call, Storage, Event<T>} = 37,
-		Tips: pallet_tips::{Pallet, Call, Storage, Event<T>} = 38,
 
 		// XCM helpers.
 		XcmpQueue: cumulus_pallet_xcmp_queue::{Pallet, Call, Storage, Event<T>} = 40,
@@ -1374,22 +1445,30 @@ construct_runtime! {
 		// Vesting. Usable initially, but removed once all vesting is finished.
 		Vesting: pallet_vesting::{Pallet, Call, Storage, Event<T>, Config<T>} = 60,
 
+		// Treasury stuff
+		Treasury: pallet_treasury::{Pallet, Call, Storage, Config, Event<T>} = 61,
+		Bounties: pallet_bounties::{Pallet, Call, Storage, Event<T>} = 62,
+		Tips: pallet_tips::{Pallet, Call, Storage, Event<T>} = 63,
+
 		// Third party modules
-		ZenlinkProtocol: zenlink_protocol::{Pallet, Call, Storage, Event<T>} = 61,
 		XTokens: orml_xtokens::{Pallet, Call, Event<T>} = 70,
 		Tokens: orml_tokens::{Pallet, Call, Storage, Event<T>, Config<T>} = 71,
 		Currencies: orml_currencies::{Pallet, Call, Event<T>} = 72,
 		UnknownTokens: orml_unknown_tokens::{Pallet, Storage, Event} = 73,
 		OrmlXcm: orml_xcm::{Pallet, Call, Event<T>} = 74,
 
+		ZenlinkProtocol: zenlink_protocol::{Pallet, Call, Storage, Event<T>} = 80,
+
 		// Bifrost modules
+		FlexibleFee: bifrost_flexible_fee::{Pallet, Call, Storage, Event<T>} = 100,
 		VtokenMint: bifrost_vtoken_mint::{Pallet, Call, Storage, Event<T>, Config<T>} = 101,
 		MinterReward: bifrost_minter_reward::{Pallet, Call, Storage, Event<T>, Config<T>} = 102,
-		FlexibleFee: bifrost_flexible_fee::{Pallet, Call, Storage, Event<T>} = 104,
 		Salp: bifrost_salp::{Pallet, Call, Storage, Event<T>} = 105,
 		Bancor: bifrost_bancor::{Pallet, Call, Storage, Event<T>, Config<T>} = 106,
 		VSBondAuction: bifrost_vsbond_auction::{Pallet, Call, Storage, Event<T>} = 107,
 		LiquidityMining: bifrost_liquidity_mining::{Pallet, Call, Storage, Event<T>} = 108,
+		TokenIssuer: bifrost_token_issuer::{Pallet, Call, Storage, Event<T>} = 109,
+		LighteningRedeem: bifrost_lightening_redeem::{Pallet, Call, Storage, Event<T>} = 110,
 	}
 }
 
@@ -1414,6 +1493,7 @@ pub type BlockId = generic::BlockId<Block>;
 /// The SignedExtension to the basic transaction logic.
 pub type SignedExtra = (
 	frame_system::CheckSpecVersion<Runtime>,
+	frame_system::CheckTxVersion<Runtime>,
 	frame_system::CheckGenesis<Runtime>,
 	frame_system::CheckEra<Runtime>,
 	frame_system::CheckNonce<Runtime>,
@@ -1586,23 +1666,55 @@ impl_runtime_apis! {
 	impl zenlink_protocol_runtime_api::ZenlinkProtocolApi<Block, AccountId> for Runtime {
 
 		fn get_balance(
-			asset_id: AssetId,
+			asset_id: ZenlinkAssetId,
 			owner: AccountId
 		) -> AssetBalance {
 			<Runtime as zenlink_protocol::Config>::MultiAssetsHandler::balance_of(asset_id, &owner)
 		}
 
 		fn get_sovereigns_info(
-			asset_id: AssetId
+			asset_id: ZenlinkAssetId
 		) -> Vec<(u32, AccountId, AssetBalance)> {
 			ZenlinkProtocol::get_sovereigns_info(&asset_id)
 		}
 
 		fn get_pair_by_asset_id(
-			asset_0: AssetId,
-			asset_1: AssetId
+			asset_0: ZenlinkAssetId,
+			asset_1: ZenlinkAssetId
 		) -> Option<PairInfo<AccountId, AssetBalance>> {
 			ZenlinkProtocol::get_pair_by_asset_id(asset_0, asset_1)
+		}
+
+		fn get_amount_in_price(
+			supply: AssetBalance,
+			path: Vec<ZenlinkAssetId>
+		) -> AssetBalance {
+			ZenlinkProtocol::desired_in_amount(supply, path)
+		}
+
+		fn get_amount_out_price(
+			supply: AssetBalance,
+			path: Vec<ZenlinkAssetId>
+		) -> AssetBalance {
+			ZenlinkProtocol::supply_out_amount(supply, path)
+		}
+
+		fn get_estimate_lptoken(
+			token_0: ZenlinkAssetId,
+			token_1: ZenlinkAssetId,
+			amount_0_desired: AssetBalance,
+			amount_1_desired: AssetBalance,
+			amount_0_min: AssetBalance,
+			amount_1_min: AssetBalance,
+		) -> AssetBalance{
+			ZenlinkProtocol::get_estimate_lptoken(
+				token_0,
+				token_1,
+				amount_0_desired,
+				amount_1_desired,
+				amount_0_min,
+				amount_1_min
+			)
 		}
 	}
 
@@ -1639,6 +1751,8 @@ impl_runtime_apis! {
 			list_benchmark!(list, extra, bifrost_vtoken_mint, VtokenMint);
 			list_benchmark!(list, extra, bifrost_minter_reward, MinterReward);
 			list_benchmark!(list, extra, bifrost_vsbond_auction, VSBondAuction);
+			list_benchmark!(list, extra, bifrost_token_issuer, TokenIssuer);
+			list_benchmark!(list, extra, bifrost_lightening_redeem, LighteningRedeem);
 
 			let storage_info = AllPalletsWithSystem::storage_info();
 
@@ -1675,7 +1789,8 @@ impl_runtime_apis! {
 			add_benchmark!(params, batches, bifrost_vtoken_mint, VtokenMint);
 			add_benchmark!(params, batches, bifrost_minter_reward, MinterReward);
 			add_benchmark!(params, batches, bifrost_vsbond_auction, VSBondAuction);
-
+			add_benchmark!(params, batches, bifrost_token_issuer, TokenIssuer);
+			add_benchmark!(params, batches, bifrost_lightening_redeem, LighteningRedeem);
 
 			if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
 			Ok(batches)

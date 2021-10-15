@@ -17,7 +17,7 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 // Ensure we're `no_std` when compiling for Wasm.
-
+use bifrost_runtime::create_x2_multilocation;
 use frame_support::{
 	construct_runtime, parameter_types,
 	traits::{EnsureOrigin, GenesisBuild},
@@ -35,10 +35,7 @@ use sp_runtime::{
 	generic,
 	traits::{BlakeTwo256, IdentityLookup},
 };
-use xcm::{
-	v0::{MultiLocation, NetworkId},
-	DoubleEncoded,
-};
+use xcm::{latest::prelude::*, DoubleEncoded};
 use xcm_support::{BifrostXcmExecutor, Weight};
 
 use crate as salp;
@@ -185,13 +182,6 @@ impl bifrost_bancor::Config for Test {
 	type WeightInfo = ();
 }
 
-pub fn create_x2_parachain_multilocation(_index: u16) -> MultiLocation {
-	MultiLocation::X2(
-		Junction::Parent,
-		Junction::AccountId32 { network: NetworkId::Any, id: ALICE.into() },
-	)
-}
-
 parameter_types! {
 	pub const MinContribution: Balance = 10;
 	pub const BifrostCrowdloanId: PalletId = PalletId(*b"bf/salp#");
@@ -212,9 +202,10 @@ parameter_types! {
 		BRUCE,
 		CATHI
 	],2);
-	pub RelaychainSovereignSubAccount: MultiLocation = create_x2_parachain_multilocation(0 as u16);
+	pub RelaychainSovereignSubAccount: MultiLocation = create_x2_multilocation(0);
 	pub SalpTransactProxyType: ParachainTransactProxyType = ParachainTransactProxyType::Derived;
 	pub SalpTransactType: ParachainTransactType = ParachainTransactType::Xcm;
+	pub const RelayNetwork: NetworkId = NetworkId::Kusama;
 }
 
 parameter_types! {
@@ -243,10 +234,6 @@ use frame_support::dispatch::DispatchResult;
 use orml_traits::XcmTransfer;
 use smallvec::smallvec;
 pub use sp_runtime::Perbill;
-use xcm::{
-	opaque::v0::MultiAsset,
-	v0::{prelude::XcmError, Junction},
-};
 
 pub struct WeightToFee;
 impl WeightToFeePolynomial for WeightToFee {
@@ -310,6 +297,7 @@ impl salp::Config for Test {
 	type SovereignSubAccountLocation = RelaychainSovereignSubAccount;
 	type TransactProxyType = SalpTransactProxyType;
 	type TransactType = SalpTransactType;
+	type RelayNetwork = RelayNetwork;
 }
 
 pub struct SalpWeightInfo;
@@ -361,21 +349,7 @@ impl BifrostXcmExecutor for MockXcmExecutor {
 
 		match result {
 			true => Ok([0; 32]),
-			false => Err(xcm::v0::Error::Undefined),
-		}
-	}
-
-	fn ump_transacts(
-		_origin: MultiLocation,
-		_call: Vec<DoubleEncoded<()>>,
-		_weight: u64,
-		_relayer: bool,
-	) -> Result<MessageId, XcmError> {
-		let result = unsafe { MOCK_XCM_RESULT.0 };
-
-		match result {
-			true => Ok([0; 32]),
-			false => Err(xcm::v0::Error::Undefined),
+			false => Err(XcmError::Undefined),
 		}
 	}
 
@@ -390,7 +364,7 @@ impl BifrostXcmExecutor for MockXcmExecutor {
 
 		match result {
 			true => Ok([0; 32]),
-			false => Err(xcm::v0::Error::Undefined),
+			false => Err(XcmError::Undefined),
 		}
 	}
 }

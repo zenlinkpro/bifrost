@@ -26,10 +26,12 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+use core::convert::TryInto;
+
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
 	construct_runtime, match_type, parameter_types,
-	traits::{Contains, Everything, IsInVec, Randomness},
+	traits::{Contains, Everything, IsInVec, Nothing, Randomness},
 	weights::{
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
 		DispatchClass, IdentityFee, Weight,
@@ -43,18 +45,18 @@ use sp_api::impl_runtime_apis;
 pub use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{
 	u32_trait::{_1, _2, _3, _4, _5},
-	OpaqueMetadata,
+	OpaqueMetadata, H160,
 };
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
-	traits::{AccountIdConversion, BlakeTwo256, Block as BlockT, Zero},
+	traits::{AccountIdConversion, BlakeTwo256, Block as BlockT, UniqueSaturatedInto, Zero},
 	transaction_validity::{TransactionSource, TransactionValidity},
-	ApplyExtrinsicResult,
+	ApplyExtrinsicResult, DispatchError, DispatchResult, SaturatedConversion,
 };
 pub use sp_runtime::{Perbill, Permill};
-use sp_std::prelude::*;
+use sp_std::{marker::PhantomData, prelude::*};
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
@@ -68,10 +70,9 @@ use bifrost_flexible_fee::{
 };
 use bifrost_runtime_common::{
 	constants::parachains,
-	create_x2_multilocation,
 	xcm_impl::{
 		BifrostAccountIdToMultiLocation, BifrostAssetMatcher, BifrostCurrencyIdConvert,
-		BifrostFilteredAssets, BifrostXcmTransactFilter, MultiWeightTraders,
+		BifrostFilteredAssets, BifrostXcmTransactFilter,
 	},
 	CouncilCollective, EnsureRootOrAllTechnicalCommittee, MoreThanHalfCouncil,
 	SlowAdjustingFeeUpdate, TechnicalCollective,
@@ -86,9 +87,10 @@ use frame_support::{
 use frame_system::{EnsureOneOf, EnsureRoot, RawOrigin};
 use hex_literal::hex;
 pub use node_primitives::{
-	AccountId, Amount, Balance, BlockNumber, CurrencyId, ExtraFeeName, Moment, Nonce, ParaId,
-	ParachainDerivedProxyAccountType, ParachainTransactProxyType, ParachainTransactType, PoolId,
-	RpcContributionStatus, TokenSymbol, TransferOriginType, XcmBaseWeight,
+	traits::CheckSubAccount, AccountId, Amount, Balance, BlockNumber, CurrencyId, ExtraFeeName,
+	Moment, Nonce, ParaId, ParachainDerivedProxyAccountType, ParachainTransactProxyType,
+	ParachainTransactType, PoolId, RpcContributionStatus, TokenSymbol, TransferOriginType,
+	XcmBaseWeight,
 };
 // orml imports
 use orml_currencies::BasicCurrencyAdapter;
@@ -99,17 +101,21 @@ use pallet_xcm::XcmPassthrough;
 use polkadot_parachain::primitives::Sibling;
 use sp_arithmetic::Percent;
 use sp_runtime::traits::ConvertInto;
-use xcm::v0::{BodyId, Junction::*, MultiAsset, MultiLocation, MultiLocation::*, NetworkId};
+use xcm::latest::prelude::*;
 use xcm_builder::{
 	AccountId32Aliases, AllowTopLevelPaidExecutionFrom, CurrencyAdapter, EnsureXcmOrigin,
-	FixedRateOfConcreteFungible, FixedWeightBounds, IsConcrete, LocationInverter,
-	ParentAsSuperuser, ParentIsDefault, RelayChainAsNative, SiblingParachainAsNative,
-	SiblingParachainConvertsVia, SignedAccountId32AsNative, SignedToAccountId32,
-	SovereignSignedViaLocation, TakeRevenue, TakeWeightCredit,
+	FixedRateOfFungible, FixedWeightBounds, IsConcrete, LocationInverter, ParentAsSuperuser,
+	ParentIsDefault, RelayChainAsNative, SiblingParachainAsNative, SiblingParachainConvertsVia,
+	SignedAccountId32AsNative, SignedToAccountId32, SovereignSignedViaLocation, TakeRevenue,
+	TakeWeightCredit,
 };
 use xcm_executor::{Config, XcmExecutor};
 use xcm_support::{BifrostXcmAdaptor, Get};
-
+// zenlink imports
+use zenlink_protocol::{
+	make_x2_location, AssetBalance, AssetId as ZenlinkAssetId, LocalAssetHandler,
+	MultiAssetsHandler, PairInfo, ZenlinkMultiAssets,
+};
 // Weights used in the runtime.
 mod weights;
 
@@ -127,7 +133,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("bifrost"),
 	impl_name: create_runtime_str!("bifrost"),
 	authoring_version: 1,
-	spec_version: 901,
+	spec_version: 903,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -178,43 +184,31 @@ pub struct CallFilter;
 impl Contains<Call> for CallFilter {
 	fn contains(c: &Call) -> bool {
 		match *c {
-			// calls allowed
-			// vstoken transfer
+			// call banned
+
+			// ZLK transfer
 			Call::Currencies(orml_currencies::Call::transfer(
 				_,
-				CurrencyId::VSToken(TokenSymbol::KSM),
+				CurrencyId::Token(TokenSymbol::ZLK),
 				_,
-			)) => true,
+			)) => false,
 			Call::Tokens(orml_tokens::Call::transfer(
 				_,
-				CurrencyId::VSToken(TokenSymbol::KSM),
+				CurrencyId::Token(TokenSymbol::ZLK),
 				_,
-			)) => true,
+			)) => false,
 			Call::Tokens(orml_tokens::Call::transfer_all(
 				_,
-				CurrencyId::VSToken(TokenSymbol::KSM),
+				CurrencyId::Token(TokenSymbol::ZLK),
 				_,
-			)) => true,
+			)) => false,
 			Call::Tokens(orml_tokens::Call::transfer_keep_alive(
 				_,
-				CurrencyId::VSToken(TokenSymbol::KSM),
+				CurrencyId::Token(TokenSymbol::ZLK),
 				_,
-			)) => true,
+			)) => false,
 
-			// vsbond transfer
-			Call::Currencies(orml_currencies::Call::transfer(_, CurrencyId::VSBond(..), _)) => true,
-			Call::Tokens(orml_tokens::Call::transfer(_, CurrencyId::VSBond(..), _)) => true,
-			Call::Tokens(orml_tokens::Call::transfer_all(_, CurrencyId::VSBond(..), _)) => true,
-			Call::Tokens(orml_tokens::Call::transfer_keep_alive(_, CurrencyId::VSBond(..), _)) =>
-				true,
-
-			// call banned
-			Call::Balances(_) => false,
-			Call::Vesting(_) => false,
-			Call::Tokens(_) => false,
 			Call::PhragmenElection(_) => false,
-			Call::Currencies(_) => false,
-			// Call::Currencies(orml_currencies::Call::transfer_native_currency(..)) => false,
 			_ => true,
 		}
 	}
@@ -231,14 +225,7 @@ parameter_types! {
 	pub const TreasuryPalletId: PalletId = PalletId(*b"bf/trsry");
 	pub const BifrostCrowdloanId: PalletId = PalletId(*b"bf/salp#");
 	pub const LiquidityMiningPalletId: PalletId = PalletId(*b"bf/lm###");
-}
-
-pub fn get_all_pallet_accounts() -> Vec<AccountId> {
-	vec![
-		TreasuryPalletId::get().into_account(),
-		BifrostCrowdloanId::get().into_account(),
-		LiquidityMiningPalletId::get().into_account(),
-	]
+	pub const LighteningRedeemPalletId: PalletId = PalletId(*b"bf/ltnrd");
 }
 
 impl frame_system::Config for Runtime {
@@ -622,11 +609,11 @@ impl cumulus_pallet_aura_ext::Config for Runtime {}
 impl pallet_randomness_collective_flip::Config for Runtime {}
 
 parameter_types! {
-	pub const KsmLocation: MultiLocation = X1(Parent);
+	pub const KsmLocation: MultiLocation = MultiLocation::parent();
 	pub const RelayNetwork: NetworkId = NetworkId::Kusama;
 	pub RelayChainOrigin: Origin = cumulus_pallet_xcm::Origin::Relay.into();
 	pub SelfParaChainId: CumulusParaId = ParachainInfo::parachain_id();
-	pub Ancestry: MultiLocation = X1(Parachain(ParachainInfo::parachain_id().into()));
+	pub Ancestry: MultiLocation = Parachain(ParachainInfo::parachain_id().into()).into();
 }
 
 /// Type for specifying how a `MultiLocation` can be converted into an `AccountId`. This is used
@@ -685,54 +672,93 @@ parameter_types! {
 }
 
 match_type! {
-	pub type ParentOrParentsUnitPlurality: impl Contains<MultiLocation> = {
-		X1(Parent) | X2(Parent, Plurality { id: BodyId::Unit, .. })
+	pub type ParentOrParentsExecutivePlurality: impl Contains<MultiLocation> = {
+		MultiLocation { parents: 1, interior: Here } |
+		MultiLocation { parents: 1, interior: X1(Plurality { id: BodyId::Executive, .. }) }
 	};
 }
 
-pub type Barrier = (
-	TakeWeightCredit,
-	AllowTopLevelPaidExecutionFrom<Everything>,
-	BifrostXcmTransactFilter<Everything>,
-);
+pub type Barrier = (TakeWeightCredit, AllowTopLevelPaidExecutionFrom<Everything>);
+
+parameter_types! {
+	pub VETHContractAddress: H160 = hex!["c3d088842dcf02c13699f936bb83dfbbc6f721ab"].into();
+}
 
 pub type BifrostAssetTransactor = MultiCurrencyAdapter<
 	Currencies,
 	UnknownTokens,
-	BifrostAssetMatcher<CurrencyId, BifrostCurrencyIdConvert<SelfParaChainId>>,
+	BifrostAssetMatcher<CurrencyId, BifrostCurrencyIdConvert<SelfParaChainId, VETHContractAddress>>,
 	AccountId,
 	LocationToAccountId,
 	CurrencyId,
-	BifrostCurrencyIdConvert<SelfParaChainId>,
+	BifrostCurrencyIdConvert<SelfParaChainId, VETHContractAddress>,
 >;
 
 parameter_types! {
-	pub KsmPerSecond: (MultiLocation, u128) = (X1(Parent), ksm_per_second());
-	// BNC:KSM = 80:1
-	pub BncPerSecond: (MultiLocation, u128) = (X3(Parent, Parachain(SelfParaId::get()), GeneralKey(NativeCurrencyId::get().encode())), ksm_per_second().saturating_mul(80));
-	// KAR:KSM = 100:1
-	pub KarPerSecond: (MultiLocation, u128) = (X3(Parent, Parachain(parachains::karura::ID), GeneralKey(parachains::karura::KAR_KEY.to_vec())), ksm_per_second().saturating_mul(100));
-	// KUSD:KSM = 400:1
-	pub KusdPerSecond: (MultiLocation, u128) = (X3(Parent, Parachain(parachains::karura::ID), GeneralKey(parachains::karura::KUSD_KEY.to_vec())), ksm_per_second().saturating_mul(400));
+	pub KsmPerSecond: (AssetId, u128) = (MultiLocation::parent().into(), ksm_per_second());
+	pub VsksmPerSecond: (AssetId, u128) = (
+		MultiLocation::new(
+			1,
+			X2(Parachain(SelfParaId::get()), GeneralKey(CurrencyId::VSToken(TokenSymbol::KSM).encode()))
+		).into(),
+		ksm_per_second()
+	);
+	pub BncPerSecond: (AssetId, u128) = (
+		MultiLocation::new(
+			1,
+			X2(Parachain(SelfParaId::get()), GeneralKey(NativeCurrencyId::get().encode()))
+		).into(),
+		// BNC:KSM = 80:1
+		ksm_per_second() * 80
+	);
+	pub KarPerSecond: (AssetId, u128) = (
+		MultiLocation::new(
+			1,
+			X2(Parachain(parachains::karura::ID), GeneralKey(parachains::karura::KAR_KEY.to_vec()))
+		).into(),
+		// KAR:KSM = 100:1
+		ksm_per_second() * 100
+	);
+	pub KusdPerSecond: (AssetId, u128) = (
+		MultiLocation::new(
+			1,
+			X2(Parachain(parachains::karura::ID), GeneralKey(parachains::karura::KUSD_KEY.to_vec()))
+		).into(),
+		// kUSD:KSM = 400:1
+		ksm_per_second() * 400
+	);
 }
 
 pub struct ToTreasury;
 impl TakeRevenue for ToTreasury {
 	fn take_revenue(revenue: MultiAsset) {
-		if let MultiAsset::ConcreteFungible { id, amount } = revenue {
-			if let Some(currency_id) = BifrostCurrencyIdConvert::<SelfParaChainId>::convert(id) {
+		if let MultiAsset { id: Concrete(location), fun: Fungible(amount) } = revenue {
+			if let Some(currency_id) =
+				BifrostCurrencyIdConvert::<SelfParaChainId>::convert(location)
+			{
 				let _ = Currencies::deposit(currency_id, &BifrostTreasuryAccount::get(), amount);
 			}
 		}
 	}
 }
 
-pub type Trader = MultiWeightTraders<
-	FixedRateOfConcreteFungible<KsmPerSecond, ToTreasury>,
-	FixedRateOfConcreteFungible<BncPerSecond, ToTreasury>,
-	FixedRateOfConcreteFungible<KarPerSecond, ToTreasury>,
-	FixedRateOfConcreteFungible<KusdPerSecond, ToTreasury>,
->;
+pub type Trader = (
+	FixedRateOfFungible<KsmPerSecond, ToTreasury>,
+	FixedRateOfFungible<VsksmPerSecond, ToTreasury>,
+	FixedRateOfFungible<BncPerSecond, ToTreasury>,
+	FixedRateOfFungible<KarPerSecond, ToTreasury>,
+	FixedRateOfFungible<KusdPerSecond, ToTreasury>,
+);
+
+pub fn create_x2_parachain_multilocation(index: u16) -> MultiLocation {
+	MultiLocation::new(
+		1,
+		X1(AccountId32 {
+			network: NetworkId::Any,
+			id: Utility::derivative_account_id(ParachainInfo::get().into_account(), index).into(),
+		}),
+	)
+}
 
 pub struct XcmConfig;
 impl Config for XcmConfig {
@@ -741,10 +767,10 @@ impl Config for XcmConfig {
 	type Call = Call;
 	type IsReserve = BifrostFilteredAssets;
 	type IsTeleporter = BifrostFilteredAssets;
-	// <- should be enough to allow teleportation of ROC
 	type LocationInverter = LocationInverter<Ancestry>;
 	type OriginConverter = XcmOriginToTransactDispatchOrigin;
 	type ResponseHandler = ();
+	type SubscriptionService = PolkadotXcm;
 	type Trader = Trader;
 	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
 	type XcmSender = XcmRouter; // Don't handle responses for now.
@@ -757,7 +783,7 @@ pub type LocalOriginToLocation = SignedToAccountId32<Origin, AccountId, RelayNet
 /// queues.
 pub type XcmRouter = (
 	// Two routers - use UMP to communicate with the relay chain:
-	cumulus_primitives_utility::ParentAsUmp<ParachainSystem>,
+	cumulus_primitives_utility::ParentAsUmp<ParachainSystem, ()>,
 	// ..and XCMP to communicate with the sibling chains.
 	XcmpQueue,
 );
@@ -768,7 +794,7 @@ impl pallet_xcm::Config for Runtime {
 	type LocationInverter = LocationInverter<Ancestry>;
 	type SendXcmOrigin = EnsureXcmOrigin<Origin, LocalOriginToLocation>;
 	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
-	type XcmExecuteFilter = Everything;
+	type XcmExecuteFilter = Nothing;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 	type XcmReserveTransferFilter = Everything;
 	type XcmRouter = XcmRouter;
@@ -783,6 +809,7 @@ impl cumulus_pallet_xcm::Config for Runtime {
 impl cumulus_pallet_xcmp_queue::Config for Runtime {
 	type ChannelInfo = ParachainSystem;
 	type Event = Event;
+	type VersionWrapper = ();
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 }
 
@@ -884,6 +911,7 @@ orml_traits::parameter_type_with_key! {
 			&CurrencyId::VSToken(TokenSymbol::KSM) => 10 * MILLICENTS,
 			&CurrencyId::VSBond(TokenSymbol::BNC, ..) => 10 * MILLICENTS,
 			&CurrencyId::VSBond(TokenSymbol::KSM, ..) => 10 * MILLICENTS,
+			&CurrencyId::LPToken(..) => 10 * MILLICENTS,
 			_ => Balance::max_value() // unsupported
 		}
 	};
@@ -892,7 +920,10 @@ orml_traits::parameter_type_with_key! {
 pub struct DustRemovalWhitelist;
 impl Contains<AccountId> for DustRemovalWhitelist {
 	fn contains(a: &AccountId) -> bool {
-		get_all_pallet_accounts().contains(a)
+		AccountIdConversion::<AccountId>::into_account(&TreasuryPalletId::get()).eq(a) ||
+			AccountIdConversion::<AccountId>::into_account(&BifrostCrowdloanId::get()).eq(a) ||
+			AccountIdConversion::<AccountId>::into_account(&LighteningRedeemPalletId::get())
+				.eq(a) || LiquidityMiningPalletId::get().check_sub_account::<PoolId>(a)
 	}
 }
 
@@ -913,7 +944,7 @@ impl orml_tokens::Config for Runtime {
 }
 
 parameter_types! {
-	pub SelfLocation: MultiLocation = X2(Parent, Parachain(ParachainInfo::get().into()));
+	pub SelfLocation: MultiLocation = MultiLocation::new(1, X1(Parachain(ParachainInfo::get().into())));
 }
 
 impl orml_xtokens::Config for Runtime {
@@ -922,6 +953,7 @@ impl orml_xtokens::Config for Runtime {
 	type CurrencyId = CurrencyId;
 	type CurrencyIdConvert = BifrostCurrencyIdConvert<ParachainInfo>;
 	type AccountIdToMultiLocation = BifrostAccountIdToMultiLocation;
+	type LocationInverter = LocationInverter<Ancestry>;
 	type SelfLocation = SelfLocation;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
@@ -983,7 +1015,7 @@ parameter_types! {
 
 impl bifrost_flexible_fee::Config for Runtime {
 	type Currency = Balances;
-	type DexOperator = ();
+	type DexOperator = ZenlinkProtocol;
 	// type FeeDealer = FlexibleFee;
 	type FeeDealer = FixedCurrencyFeeRate<Runtime>;
 	type Event = Event;
@@ -1026,6 +1058,16 @@ impl EnsureOrigin<Origin> for EnsureConfirmAsMultiSig {
 	}
 }
 
+pub fn create_x2_multilocation(index: u16) -> MultiLocation {
+	MultiLocation::new(
+		1,
+		X1(AccountId32 {
+			network: NetworkId::Any,
+			id: Utility::derivative_account_id(ParachainInfo::get().into_account(), index).into(),
+		}),
+	)
+}
+
 parameter_types! {
 	pub const MinContribution: Balance = DOLLARS / 10;
 	pub const RemoveKeysLimit: u32 = 500;
@@ -1039,14 +1081,14 @@ parameter_types! {
 	pub ContributionWeight:XcmBaseWeight = 893125000.into();
 	pub AddProxyWeight:XcmBaseWeight = XCM_WEIGHT.into();
 	pub ConfirmMuitiSigAccount: AccountId = hex!["e4da05f08e89bf6c43260d96f26fffcfc7deae5b465da08669a9d008e64c2c63"].into();
-	pub RelaychainSovereignSubAccount: MultiLocation = create_x2_multilocation(Utility::derivative_account_id(ParachainInfo::get().into_account(), ParachainDerivedProxyAccountType::Salp as u16));
+	pub RelaychainSovereignSubAccount: MultiLocation = create_x2_multilocation(ParachainDerivedProxyAccountType::Salp as u16);
 	pub SalpTransactType: ParachainTransactType = ParachainTransactType::Xcm;
 	pub SalpProxyType: ParachainTransactProxyType = ParachainTransactProxyType::Derived;
 }
 
 impl bifrost_salp::Config for Runtime {
 	type BancorPool = ();
-	type BifrostXcmExecutor = BifrostXcmAdaptor<XcmRouter, XcmWeight, WeightToFee>;
+	type BifrostXcmExecutor = BifrostXcmAdaptor<XcmRouter, XcmWeight, WeightToFee, SelfParaId>;
 	type Event = Event;
 	type LeasePeriod = LeasePeriod;
 	type MinContribution = MinContribution;
@@ -1072,6 +1114,7 @@ impl bifrost_salp::Config for Runtime {
 	type SovereignSubAccountLocation = RelaychainSovereignSubAccount;
 	type TransactProxyType = SalpProxyType;
 	type TransactType = SalpTransactType;
+	type RelayNetwork = RelayNetwork;
 }
 
 parameter_types! {
@@ -1086,8 +1129,7 @@ parameter_types! {
 
 impl bifrost_liquidity_mining::Config for Runtime {
 	type Event = Event;
-	type ControlOrigin =
-		pallet_collective::EnsureProportionAtLeast<_1, _2, AccountId, CouncilCollective>;
+	type ControlOrigin = MoreThanHalfCouncil;
 	type MultiCurrency = Currencies;
 	type RelayChainTokenSymbol = RelayChainTokenSymbol;
 	type MaximumDepositInPool = MaximumDepositInPool;
@@ -1100,7 +1142,128 @@ impl bifrost_liquidity_mining::Config for Runtime {
 	type WeightInfo = weights::bifrost_liquidity_mining::WeightInfo<Runtime>;
 }
 
+impl bifrost_token_issuer::Config for Runtime {
+	type Event = Event;
+	type MultiCurrency = Currencies;
+	type ControlOrigin =
+		EnsureOneOf<AccountId, MoreThanHalfCouncil, EnsureRootOrAllTechnicalCommittee>;
+	type WeightInfo = weights::bifrost_token_issuer::WeightInfo<Runtime>;
+}
+
+impl bifrost_lightening_redeem::Config for Runtime {
+	type Event = Event;
+	type MultiCurrency = Tokens;
+	type ControlOrigin =
+		EnsureOneOf<AccountId, MoreThanHalfCouncil, EnsureRootOrAllTechnicalCommittee>;
+	type PalletId = LighteningRedeemPalletId;
+	type WeightInfo = weights::bifrost_lightening_redeem::WeightInfo<Runtime>;
+}
+
 // Bifrost modules end
+
+// zenlink runtime start
+parameter_types! {
+	pub const ZenlinkPalletId: PalletId = PalletId(*b"/zenlink");
+	pub const GetExchangeFee: (u32, u32) = (3, 1000);   // 0.3%
+
+	// xcm
+	pub const AnyNetwork: NetworkId = NetworkId::Any;
+	pub ZenlinkRegistedParaChains: Vec<(MultiLocation, u128)> = vec![
+		// Bifrost local and live, 0.01 BNC
+		(make_x2_location(2001), 10_000_000_000),
+		// Phala local and live, 1 PHA
+		(make_x2_location(2004), 1_000_000_000_000),
+		// Plasm local and live, 0.0000000000001 SDN
+		(make_x2_location(2007), 1_000_000),
+		// Sherpax live, 0 KSX
+		(make_x2_location(2013), 0),
+
+		// Zenlink local 1 for test
+		(make_x2_location(200), 1_000_000),
+		// Zenlink local 2 for test
+		(make_x2_location(300), 1_000_000),
+	];
+}
+
+impl zenlink_protocol::Config for Runtime {
+	type Conversion = ZenlinkLocationToAccountId;
+	type Event = Event;
+	type MultiAssetsHandler = MultiAssets;
+	type PalletId = ZenlinkPalletId;
+	type SelfParaId = SelfParaId;
+	type TargetChains = ZenlinkRegistedParaChains;
+	type XcmExecutor = XcmExecutor<XcmConfig>;
+}
+
+type MultiAssets = ZenlinkMultiAssets<ZenlinkProtocol, Balances, LocalAssetAdaptor<Currencies>>;
+
+pub type ZenlinkLocationToAccountId = (
+	// Sibling parachain origins convert to AccountId via the `ParaId::into`.
+	SiblingParachainConvertsVia<Sibling, AccountId>,
+	// Straight up local `AccountId32` origins just alias directly to `AccountId`.
+	AccountId32Aliases<AnyNetwork, AccountId>,
+);
+
+// Below is the implementation of tokens manipulation functions other than native token.
+pub struct LocalAssetAdaptor<Local>(PhantomData<Local>);
+
+impl<Local, AccountId> LocalAssetHandler<AccountId> for LocalAssetAdaptor<Local>
+where
+	Local: MultiCurrency<AccountId, CurrencyId = CurrencyId>,
+{
+	fn local_balance_of(asset_id: ZenlinkAssetId, who: &AccountId) -> AssetBalance {
+		let currency_id: CurrencyId = asset_id.try_into().unwrap_or_default();
+		Local::free_balance(currency_id, &who).saturated_into()
+	}
+
+	fn local_total_supply(asset_id: ZenlinkAssetId) -> AssetBalance {
+		let currency_id: CurrencyId = asset_id.try_into().unwrap_or_default();
+		Local::total_issuance(currency_id).saturated_into()
+	}
+
+	fn local_is_exists(asset_id: ZenlinkAssetId) -> bool {
+		let currency_id: Result<CurrencyId, ()> = asset_id.try_into();
+		match currency_id {
+			Ok(_) => true,
+			Err(_) => false,
+		}
+	}
+
+	fn local_transfer(
+		asset_id: ZenlinkAssetId,
+		origin: &AccountId,
+		target: &AccountId,
+		amount: AssetBalance,
+	) -> DispatchResult {
+		let currency_id: CurrencyId = asset_id.try_into().unwrap_or_default();
+		Local::transfer(currency_id, &origin, &target, amount.unique_saturated_into())?;
+
+		Ok(())
+	}
+
+	fn local_deposit(
+		asset_id: ZenlinkAssetId,
+		origin: &AccountId,
+		amount: AssetBalance,
+	) -> Result<AssetBalance, DispatchError> {
+		let currency_id: CurrencyId = asset_id.try_into().unwrap_or_default();
+		Local::deposit(currency_id, &origin, amount.unique_saturated_into())?;
+		return Ok(amount);
+	}
+
+	fn local_withdraw(
+		asset_id: ZenlinkAssetId,
+		origin: &AccountId,
+		amount: AssetBalance,
+	) -> Result<AssetBalance, DispatchError> {
+		let currency_id: CurrencyId = asset_id.try_into().unwrap_or_default();
+		Local::withdraw(currency_id, &origin, amount.unique_saturated_into())?;
+
+		Ok(amount)
+	}
+}
+
+// zenlink runtime end
 
 construct_runtime! {
 	pub enum Runtime where
@@ -1154,16 +1317,20 @@ construct_runtime! {
 		Bounties: pallet_bounties::{Pallet, Call, Storage, Event<T>} = 62,
 		Tips: pallet_tips::{Pallet, Call, Storage, Event<T>} = 63,
 
+		// Third party modules
 		XTokens: orml_xtokens::{Pallet, Call, Event<T>} = 70,
 		Tokens: orml_tokens::{Pallet, Call, Storage, Event<T>, Config<T>} = 71,
 		Currencies: orml_currencies::{Pallet, Call, Event<T>} = 72,
 		UnknownTokens: orml_unknown_tokens::{Pallet, Storage, Event} = 73,
 		OrmlXcm: orml_xcm::{Pallet, Call, Event<T>} = 74,
+		ZenlinkProtocol: zenlink_protocol::{Pallet, Call, Storage, Event<T>} = 80,
 
 		// Bifrost modules
 		FlexibleFee: bifrost_flexible_fee::{Pallet, Call, Storage, Event<T>} = 100,
 		Salp: bifrost_salp::{Pallet, Call, Storage, Event<T>} = 105,
 		LiquidityMining: bifrost_liquidity_mining::{Pallet, Call, Storage, Event<T>} = 108,
+		TokenIssuer: bifrost_token_issuer::{Pallet, Call, Storage, Event<T>} = 109,
+		LighteningRedeem: bifrost_lightening_redeem::{Pallet, Call, Storage, Event<T>} = 110,
 	}
 }
 
@@ -1323,6 +1490,62 @@ impl_runtime_apis! {
 		}
 	}
 
+	// zenlink runtime outer apis
+	impl zenlink_protocol_runtime_api::ZenlinkProtocolApi<Block, AccountId> for Runtime {
+
+		fn get_balance(
+			asset_id: ZenlinkAssetId,
+			owner: AccountId
+		) -> AssetBalance {
+			<Runtime as zenlink_protocol::Config>::MultiAssetsHandler::balance_of(asset_id, &owner)
+		}
+
+		fn get_sovereigns_info(
+			asset_id: ZenlinkAssetId
+		) -> Vec<(u32, AccountId, AssetBalance)> {
+			ZenlinkProtocol::get_sovereigns_info(&asset_id)
+		}
+
+		fn get_pair_by_asset_id(
+			asset_0: ZenlinkAssetId,
+			asset_1: ZenlinkAssetId
+		) -> Option<PairInfo<AccountId, AssetBalance>> {
+			ZenlinkProtocol::get_pair_by_asset_id(asset_0, asset_1)
+		}
+
+		fn get_amount_in_price(
+			supply: AssetBalance,
+			path: Vec<ZenlinkAssetId>
+		) -> AssetBalance {
+			ZenlinkProtocol::desired_in_amount(supply, path)
+		}
+
+		fn get_amount_out_price(
+			supply: AssetBalance,
+			path: Vec<ZenlinkAssetId>
+		) -> AssetBalance {
+			ZenlinkProtocol::supply_out_amount(supply, path)
+		}
+
+		fn get_estimate_lptoken(
+			token_0: ZenlinkAssetId,
+			token_1: ZenlinkAssetId,
+			amount_0_desired: AssetBalance,
+			amount_1_desired: AssetBalance,
+			amount_0_min: AssetBalance,
+			amount_1_min: AssetBalance,
+		) -> AssetBalance{
+			ZenlinkProtocol::get_estimate_lptoken(
+				token_0,
+				token_1,
+				amount_0_desired,
+				amount_1_desired,
+				amount_0_min,
+				amount_1_min
+			)
+		}
+	}
+
 	impl bifrost_salp_rpc_runtime_api::SalpRuntimeApi<Block, ParaId, AccountId> for Runtime {
 		fn get_contribution(index: ParaId, who: AccountId) -> (Balance,RpcContributionStatus) {
 			let rs = Salp::contribution_by_fund(index, &who);
@@ -1353,6 +1576,8 @@ impl_runtime_apis! {
 			list_benchmark!(list, extra, bifrost_flexible_fee, FlexibleFee);
 			list_benchmark!(list, extra, bifrost_salp, Salp);
 			list_benchmark!(list, extra, bifrost_liquidity_mining, LiquidityMining);
+			list_benchmark!(list, extra, bifrost_token_issuer, TokenIssuer);
+			list_benchmark!(list, extra, bifrost_lightening_redeem, LighteningRedeem);
 
 			let storage_info = AllPalletsWithSystem::storage_info();
 
@@ -1386,6 +1611,8 @@ impl_runtime_apis! {
 			add_benchmark!(params, batches, bifrost_flexible_fee, FlexibleFee);
 			add_benchmark!(params, batches, bifrost_salp, Salp);
 			add_benchmark!(params, batches, bifrost_liquidity_mining, LiquidityMining);
+			add_benchmark!(params, batches, bifrost_token_issuer, TokenIssuer);
+			add_benchmark!(params, batches, bifrost_lightening_redeem, LighteningRedeem);
 
 			if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
 			Ok(batches)

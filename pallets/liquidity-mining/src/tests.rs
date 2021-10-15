@@ -1791,7 +1791,7 @@ fn force_retire_pool_charged_should_work() {
 }
 
 #[test]
-fn force_retire_pool_charged_with_no_deposit_should_work() {
+fn force_retire_pool_charged_without_deposit_should_work() {
 	new_test_ext().execute_with(|| {
 		assert_ok!(LM::create_mining_pool(
 			pallet_collective::RawOrigin::Member(TC_MEMBER_1).into(),
@@ -1806,10 +1806,26 @@ fn force_retire_pool_charged_with_no_deposit_should_work() {
 		// It is unable to call Collective::execute(..) which is private;
 		assert_ok!(LM::charge(Some(INVESTOR).into(), 0));
 
+		let keeper = LM::pool(0).unwrap().keeper;
+
 		assert_ok!(LM::force_retire_pool(
 			pallet_collective::RawOrigin::Member(TC_MEMBER_1).into(),
 			0
 		));
+
+		assert_eq!(Tokens::accounts(keeper.clone(), REWARD_1).free, 0);
+		assert_eq!(Tokens::accounts(keeper.clone(), REWARD_1).frozen, 0);
+		assert_eq!(Tokens::accounts(keeper.clone(), REWARD_1).reserved, 0);
+		assert_eq!(Tokens::accounts(keeper.clone(), REWARD_2).free, 0);
+		assert_eq!(Tokens::accounts(keeper.clone(), REWARD_2).frozen, 0);
+		assert_eq!(Tokens::accounts(keeper.clone(), REWARD_2).reserved, 0);
+
+		assert_eq!(Tokens::accounts(INVESTOR, REWARD_1).free, REWARD_AMOUNT);
+		assert_eq!(Tokens::accounts(INVESTOR, REWARD_1).frozen, 0);
+		assert_eq!(Tokens::accounts(INVESTOR, REWARD_1).reserved, 0);
+		assert_eq!(Tokens::accounts(INVESTOR, REWARD_2).free, REWARD_AMOUNT);
+		assert_eq!(Tokens::accounts(INVESTOR, REWARD_2).frozen, 0);
+		assert_eq!(Tokens::accounts(INVESTOR, REWARD_2).reserved, 0);
 
 		assert!(LM::pool(0).is_none());
 	});
@@ -2163,6 +2179,70 @@ fn claim_from_eb_farming_should_work() {
 }
 
 #[test]
+fn discard_reward_lower_than_ed_should_work() {
+	new_test_ext().execute_with(|| {
+		const PER_BLOCK: Balance = REWARD_AMOUNT / DAYS as Balance;
+		const HALF_ED_PER_BLOCK: Balance = ExistentialDeposit::get() / 2;
+
+		assert_ok!(LM::create_eb_farming_pool(
+			pallet_collective::RawOrigin::Member(TC_MEMBER_1).into(),
+			2001,
+			13,
+			20,
+			(REWARD_1, HALF_ED_PER_BLOCK * DAYS as Balance),
+			vec![(REWARD_2, REWARD_AMOUNT)].try_into().unwrap(),
+			DAYS,
+			1_000_000,
+			0
+		));
+
+		// It is unable to call Collective::execute(..) which is private;
+		assert_ok!(LM::charge(Some(INVESTOR).into(), 0));
+
+		assert_ok!(Tokens::reserve(FARMING_DEPOSIT_1, &USER_1, DEPOSIT_AMOUNT));
+		assert_ok!(Tokens::reserve(FARMING_DEPOSIT_2, &USER_1, DEPOSIT_AMOUNT));
+
+		assert_ok!(LM::deposit(Some(USER_1).into(), 0, DEPOSIT_AMOUNT));
+
+		let keeper = LM::pool(0).unwrap().keeper;
+
+		// The action will discard the reward of `reward_1`.
+		run_to_block(1);
+		assert_ok!(LM::claim(Some(USER_1).into(), 0));
+
+		assert_eq!(Tokens::accounts(USER_1, REWARD_1).free, 0);
+		assert_eq!(Tokens::accounts(USER_1, REWARD_2).free, PER_BLOCK);
+
+		run_to_block(3);
+		assert_ok!(LM::claim(Some(USER_1).into(), 0));
+
+		assert_eq!(Tokens::accounts(USER_1, REWARD_1).free, 2 * HALF_ED_PER_BLOCK);
+		assert_eq!(Tokens::accounts(USER_1, REWARD_2).free, 3 * PER_BLOCK);
+
+		run_to_block(4);
+		assert_ok!(LM::claim(Some(USER_1).into(), 0));
+
+		assert_eq!(Tokens::accounts(USER_1, REWARD_1).free, 3 * HALF_ED_PER_BLOCK);
+		assert_eq!(Tokens::accounts(USER_1, REWARD_2).free, 4 * PER_BLOCK);
+
+		run_to_block(DAYS);
+		assert_ok!(LM::redeem_all(Some(USER_1).into(), 0));
+
+		let reward_1 = (DAYS - 1) as Balance * HALF_ED_PER_BLOCK;
+		let reward_2 = DAYS as Balance * PER_BLOCK;
+
+		assert_eq!(Tokens::accounts(USER_1, REWARD_1).free, reward_1);
+		assert_eq!(Tokens::accounts(USER_1, REWARD_2).free, reward_2);
+
+		assert_eq!(Tokens::accounts(keeper.clone(), REWARD_1).free, 0);
+		assert_eq!(Tokens::accounts(keeper.clone(), REWARD_2).free, 0);
+
+		assert_eq!(Tokens::accounts(INVESTOR, REWARD_1).free, REWARD_AMOUNT - reward_1);
+		assert_eq!(Tokens::accounts(INVESTOR, REWARD_2).free, REWARD_AMOUNT - reward_2);
+	});
+}
+
+#[test]
 fn simple_integration_test() {
 	new_test_ext().execute_with(|| {
 		const PER_BLOCK: Balance = REWARD_AMOUNT / DAYS as Balance;
@@ -2296,5 +2376,92 @@ fn simple_integration_test() {
 		assert!(LM::pool(0).is_none());
 		assert!(LM::user_deposit_data(0, USER_1).is_none());
 		assert!(LM::user_deposit_data(0, USER_2).is_none());
+	});
+}
+
+#[test]
+fn fuck_bug() {
+	new_test_ext().execute_with(|| {
+		const ALICE: AccountId = AccountId::new([0u8; 32]);
+		const BOB: AccountId = AccountId::new([1u8; 32]);
+		const CHARLIE: AccountId = AccountId::new([2u8; 32]);
+
+		const INIT_AMOUNT: Balance = 1_000_000_000 * UNIT;
+
+		const REWARD_TOKEN: CurrencyId = CurrencyId::Token(TokenSymbol::KSM);
+		const REWARD_AMOUNT: Balance = 10 * UNIT;
+
+		const DEPOSIT_TOKEN_1: CurrencyId = CurrencyId::VSToken(TokenSymbol::KSM);
+		const DEPOSIT_TOKEN_2: CurrencyId = CurrencyId::VSBond(TokenSymbol::BNC, 2001, 13, 20);
+
+		assert_ok!(Tokens::set_balance(Origin::root(), ALICE, REWARD_TOKEN, INIT_AMOUNT, 0));
+		assert_ok!(Tokens::set_balance(Origin::root(), BOB, DEPOSIT_TOKEN_1, 0, INIT_AMOUNT));
+		assert_ok!(Tokens::set_balance(Origin::root(), BOB, DEPOSIT_TOKEN_2, 0, INIT_AMOUNT));
+		assert_ok!(Tokens::set_balance(Origin::root(), CHARLIE, DEPOSIT_TOKEN_1, 0, INIT_AMOUNT));
+		assert_ok!(Tokens::set_balance(Origin::root(), CHARLIE, DEPOSIT_TOKEN_2, 0, INIT_AMOUNT));
+
+		run_to_block(134);
+
+		assert_ok!(LM::create_eb_farming_pool(
+			pallet_collective::RawOrigin::Member(TC_MEMBER_1).into(),
+			2001,
+			13,
+			20,
+			(REWARD_TOKEN, REWARD_AMOUNT),
+			vec![].try_into().unwrap(),
+			23,
+			UNIT,
+			0
+		));
+
+		run_to_block(135);
+
+		assert_ok!(LM::charge(Some(ALICE).into(), 0));
+
+		run_to_block(138);
+
+		assert_ok!(LM::deposit(Some(BOB).into(), 0, 13 * UNIT));
+
+		run_to_block(140);
+
+		assert_ok!(LM::deposit(Some(CHARLIE).into(), 0, 187 * UNIT));
+
+		run_to_block(179);
+
+		assert_ok!(LM::redeem_all(Some(BOB).into(), 0));
+		assert_ok!(LM::redeem_all(Some(CHARLIE).into(), 0));
+
+		assert!(LM::pool(200).is_none());
+
+		assert_ok!(LM::create_eb_farming_pool(
+			pallet_collective::RawOrigin::Member(TC_MEMBER_1).into(),
+			2001,
+			13,
+			20,
+			(REWARD_TOKEN, REWARD_AMOUNT),
+			vec![].try_into().unwrap(),
+			23,
+			UNIT,
+			0
+		));
+
+		run_to_block(235);
+
+		assert_ok!(LM::charge(Some(ALICE).into(), 1));
+
+		run_to_block(250);
+
+		assert_ok!(LM::deposit(Some(BOB).into(), 1, 23 * UNIT));
+
+		run_to_block(265);
+
+		assert_ok!(LM::deposit(Some(CHARLIE).into(), 1, 167 * UNIT));
+
+		run_to_block(280);
+
+		assert_ok!(LM::redeem_all(Some(BOB).into(), 1));
+		assert_ok!(LM::redeem_all(Some(CHARLIE).into(), 1));
+
+		assert!(LM::pool(1).is_none());
 	});
 }

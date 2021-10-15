@@ -23,7 +23,6 @@ use node_primitives::{AccountId, BlockNumber};
 use pallet_transaction_payment::{Multiplier, TargetedFeeAdjustment};
 use sp_core::u32_trait::{_1, _2};
 use sp_runtime::{FixedPointNumber, Perquintill};
-use xcm::v0::{Junction, MultiLocation, NetworkId};
 
 pub mod constants;
 pub mod xcm_impl;
@@ -74,10 +73,3 @@ pub type EnsureRootOrAllTechnicalCommittee = EnsureOneOf<
 	EnsureRoot<AccountId>,
 	pallet_collective::EnsureProportionAtLeast<_1, _1, AccountId, TechnicalCollective>,
 >;
-
-pub fn create_x2_multilocation(account: AccountId) -> MultiLocation {
-	MultiLocation::X2(
-		Junction::Parent,
-		Junction::AccountId32 { network: NetworkId::Any, id: account.into() },
-	)
-}
