@@ -226,6 +226,7 @@ parameter_types! {
 	pub const TreasuryPalletId: PalletId = PalletId(*b"bf/trsry");
 	pub const BifrostCrowdloanId: PalletId = PalletId(*b"bf/salp#");
 	pub const LiquidityMiningPalletId: PalletId = PalletId(*b"bf/lm###");
+	pub const LiquidityMiningDOTPalletId: PalletId = PalletId(*b"bf/lmdot");
 	pub const LighteningRedeemPalletId: PalletId = PalletId(*b"bf/ltnrd");
 }
 
@@ -927,7 +928,8 @@ impl Contains<AccountId> for DustRemovalWhitelist {
 		AccountIdConversion::<AccountId>::into_account(&TreasuryPalletId::get()).eq(a) ||
 			AccountIdConversion::<AccountId>::into_account(&BifrostCrowdloanId::get()).eq(a) ||
 			AccountIdConversion::<AccountId>::into_account(&LighteningRedeemPalletId::get())
-				.eq(a) || LiquidityMiningPalletId::get().check_sub_account::<PoolId>(a)
+				.eq(a) || LiquidityMiningPalletId::get().check_sub_account::<PoolId>(a) ||
+			LiquidityMiningDOTPalletId::get().check_sub_account::<PoolId>(a)
 	}
 }
 
@@ -1141,7 +1143,8 @@ impl bifrost_salp_lite::Config for Runtime {
 }
 
 parameter_types! {
-	pub const RelayChainTokenSymbol: TokenSymbol = TokenSymbol::KSM;
+	pub const RelayChainTokenSymbolKSM: TokenSymbol = TokenSymbol::KSM;
+	pub const RelayChainTokenSymbolDOT: TokenSymbol = TokenSymbol::DOT;
 	pub const MaximumDepositInPool: Balance = 1_000_000_000 * DOLLARS;
 	pub const MinimumDepositOfUser: Balance = 1_000_000;
 	pub const MinimumRewardPerBlock: Balance = 1_000;
@@ -1150,11 +1153,11 @@ parameter_types! {
 	pub const MaximumCharged: u32 = 32;
 }
 
-impl bifrost_liquidity_mining::Config for Runtime {
+impl bifrost_liquidity_mining::Config<bifrost_liquidity_mining::Instance1> for Runtime {
 	type Event = Event;
 	type ControlOrigin = MoreThanHalfCouncil;
 	type MultiCurrency = Currencies;
-	type RelayChainTokenSymbol = RelayChainTokenSymbol;
+	type RelayChainTokenSymbol = RelayChainTokenSymbolKSM;
 	type MaximumDepositInPool = MaximumDepositInPool;
 	type MinimumDepositOfUser = MinimumDepositOfUser;
 	type MinimumRewardPerBlock = MinimumRewardPerBlock;
@@ -1162,6 +1165,21 @@ impl bifrost_liquidity_mining::Config for Runtime {
 	type MaximumCharged = MaximumCharged;
 	type MaximumOptionRewards = MaximumOptionRewards;
 	type PalletId = LiquidityMiningPalletId;
+	type WeightInfo = weights::bifrost_liquidity_mining::WeightInfo<Runtime>;
+}
+
+impl bifrost_liquidity_mining::Config<bifrost_liquidity_mining::Instance2> for Runtime {
+	type Event = Event;
+	type ControlOrigin = MoreThanHalfCouncil;
+	type MultiCurrency = Currencies;
+	type RelayChainTokenSymbol = RelayChainTokenSymbolDOT;
+	type MaximumDepositInPool = MaximumDepositInPool;
+	type MinimumDepositOfUser = MinimumDepositOfUser;
+	type MinimumRewardPerBlock = MinimumRewardPerBlock;
+	type MinimumDuration = MinimumDuration;
+	type MaximumCharged = MaximumCharged;
+	type MaximumOptionRewards = MaximumOptionRewards;
+	type PalletId = LiquidityMiningDOTPalletId;
 	type WeightInfo = weights::bifrost_liquidity_mining::WeightInfo<Runtime>;
 }
 
@@ -1352,7 +1370,8 @@ construct_runtime! {
 		// Bifrost modules
 		FlexibleFee: bifrost_flexible_fee::{Pallet, Call, Storage, Event<T>} = 100,
 		Salp: bifrost_salp::{Pallet, Call, Storage, Event<T>} = 105,
-		LiquidityMining: bifrost_liquidity_mining::{Pallet, Call, Storage, Event<T>} = 108,
+		LiquidityMiningDOT: bifrost_liquidity_mining::<Instance2>::{Pallet, Call, Storage, Event<T>} = 107,
+		LiquidityMining: bifrost_liquidity_mining::<Instance1>::{Pallet, Call, Storage, Event<T>} = 108,
 		TokenIssuer: bifrost_token_issuer::{Pallet, Call, Storage, Event<T>} = 109,
 		LighteningRedeem: bifrost_lightening_redeem::{Pallet, Call, Storage, Event<T>} = 110,
 		SalpLite: bifrost_salp_lite::{Pallet, Call, Storage, Event<T>} = 111,
