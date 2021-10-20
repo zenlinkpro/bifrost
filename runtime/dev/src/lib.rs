@@ -31,7 +31,7 @@ use core::convert::TryInto;
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
 	construct_runtime, match_type, parameter_types,
-	traits::{Contains, Everything, InstanceFilter, IsInVec, LockIdentifier, Randomness},
+	traits::{Contains, Everything, InstanceFilter, IsInVec, LockIdentifier, Nothing, Randomness},
 	weights::{
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
 		DispatchClass, IdentityFee, Weight,
@@ -86,7 +86,7 @@ use bifrost_runtime_common::{
 	constants::parachains,
 	xcm_impl::{
 		BifrostAccountIdToMultiLocation, BifrostAssetMatcher, BifrostCurrencyIdConvert,
-		BifrostFilteredAssets, BifrostXcmTransactFilter,
+		BifrostFilteredAssets,
 	},
 	CouncilCollective, EnsureRootOrAllTechnicalCommittee, MoreThanHalfCouncil,
 	SlowAdjustingFeeUpdate,
@@ -194,6 +194,7 @@ parameter_types! {
 	pub const NativeCurrencyId: CurrencyId = CurrencyId::Native(TokenSymbol::ASG);
 	pub const RelayCurrencyId: CurrencyId = CurrencyId::Token(TokenSymbol::KSM);
 	pub const StableCurrencyId: CurrencyId = CurrencyId::Stable(TokenSymbol::KUSD);
+	pub const PolkadotCurrencyId: CurrencyId = CurrencyId::Token(TokenSymbol::DOT);
 }
 
 impl frame_system::Config for Runtime {
@@ -252,6 +253,7 @@ parameter_types! {
 	pub const TransferFee: u128 = 1 * MILLIBNC;
 	pub const CreationFee: u128 = 1 * MILLIBNC;
 	pub const TransactionByteFee: u128 = 1 * MICROBNC;
+	pub const OperationalFeeMultiplier: u8 = 5;
 	pub const MaxLocks: u32 = 50;
 	pub const MaxReserves: u32 = 50;
 }
@@ -293,7 +295,17 @@ parameter_types! {
 
 /// The type used to represent the kinds of proxying allowed.
 #[derive(
-	Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Encode, Decode, RuntimeDebug, MaxEncodedLen,
+	Copy,
+	Clone,
+	Eq,
+	PartialEq,
+	Ord,
+	PartialOrd,
+	Encode,
+	Decode,
+	RuntimeDebug,
+	MaxEncodedLen,
+	scale_info::TypeInfo,
 )]
 pub enum ProxyType {
 	Any = 0,
@@ -316,9 +328,9 @@ impl InstanceFilter<Call> for ProxyType {
 				Call::System(..) |
 				Call::Scheduler(..) |
 				Call::Timestamp(..) |
-				Call::Indices(pallet_indices::Call::claim(..)) |
-				Call::Indices(pallet_indices::Call::free(..)) |
-				Call::Indices(pallet_indices::Call::freeze(..)) |
+				Call::Indices(pallet_indices::Call::claim{..}) |
+				Call::Indices(pallet_indices::Call::free{..}) |
+				Call::Indices(pallet_indices::Call::freeze{..}) |
 				Call::Democracy(..) |
 				Call::Council(..) |
 				Call::TechnicalCommittee(..) |
@@ -327,8 +339,8 @@ impl InstanceFilter<Call> for ProxyType {
 				Call::Treasury(..) |
 				Call::Bounties(..) |
 				Call::Tips(..) |
-				Call::Vesting(pallet_vesting::Call::vest(..)) |
-				Call::Vesting(pallet_vesting::Call::vest_other(..)) |
+				Call::Vesting(pallet_vesting::Call::vest{..}) |
+				Call::Vesting(pallet_vesting::Call::vest_other{..}) |
 				// Specifically omitting Vesting `vested_transfer`, and `force_vested_transfer`
 				Call::Utility(..) |
 				Call::Proxy(..) |
@@ -343,7 +355,7 @@ impl InstanceFilter<Call> for ProxyType {
 					Call::Utility(..)
 			),
 			ProxyType::CancelProxy => {
-				matches!(c, Call::Proxy(pallet_proxy::Call::reject_announcement(..)))
+				matches!(c, Call::Proxy(pallet_proxy::Call::reject_announcement { .. }))
 			},
 		}
 	}
@@ -575,6 +587,7 @@ impl pallet_democracy::Config for Runtime {
 	// only do it once and it lasts only for the cool-off period.
 	type VetoOrigin = pallet_collective::EnsureMember<AccountId, TechnicalCollective>;
 	type VotingPeriod = VotingPeriod;
+	type VoteLockingPeriod = EnactmentPeriod; // Same as EnactmentPeriod
 	type WeightInfo = pallet_democracy::weights::SubstrateWeight<Runtime>;
 }
 
@@ -647,6 +660,7 @@ impl pallet_tips::Config for Runtime {
 impl pallet_transaction_payment::Config for Runtime {
 	type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
 	type OnChargeTransaction = FlexibleFee;
+	type OperationalFeeMultiplier = OperationalFeeMultiplier;
 	type TransactionByteFee = TransactionByteFee;
 	type WeightToFee = IdentityFee<Balance>;
 }
@@ -740,6 +754,7 @@ pub type XcmOriginToTransactDispatchOrigin = (
 parameter_types! {
 	// One XCM operation is 200_000_000 weight, cross-chain transfer ~= 2x of transfer = 3_000_000_000
 	pub UnitWeightCost: Weight = 200_000_000;
+	pub const MaxInstructions: u32 = 100;
 }
 
 match_type! {
@@ -749,11 +764,7 @@ match_type! {
 	};
 }
 
-pub type Barrier = (
-	TakeWeightCredit,
-	AllowTopLevelPaidExecutionFrom<Everything>,
-	BifrostXcmTransactFilter<ParentOrParentsExecutivePlurality>,
-);
+pub type Barrier = (TakeWeightCredit, AllowTopLevelPaidExecutionFrom<Everything>);
 
 parameter_types! {
 	pub VETHContractAddress: H160 = hex!["c3d088842dcf02c13699f936bb83dfbbc6f721ab"].into();
@@ -827,7 +838,9 @@ pub type Trader = (
 
 pub struct XcmConfig;
 impl Config for XcmConfig {
+	type AssetClaims = (); // don't claim for now
 	type AssetTransactor = BifrostAssetTransactor;
+	type AssetTrap = (); // don't trap for now
 	type Barrier = Barrier;
 	type Call = Call;
 	type IsReserve = BifrostFilteredAssets;
@@ -837,7 +850,7 @@ impl Config for XcmConfig {
 	type ResponseHandler = ();
 	type SubscriptionService = PolkadotXcm;
 	type Trader = Trader;
-	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
+	type Weigher = FixedWeightBounds<UnitWeightCost, Call, MaxInstructions>;
 	type XcmSender = XcmRouter; // Don't handle responses for now.
 }
 
@@ -858,12 +871,16 @@ impl pallet_xcm::Config for Runtime {
 	type ExecuteXcmOrigin = EnsureXcmOrigin<Origin, LocalOriginToLocation>;
 	type LocationInverter = LocationInverter<Ancestry>;
 	type SendXcmOrigin = EnsureXcmOrigin<Origin, LocalOriginToLocation>;
-	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
+	type Weigher = FixedWeightBounds<UnitWeightCost, Call, MaxInstructions>;
 	type XcmExecuteFilter = Everything;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 	type XcmReserveTransferFilter = Everything;
 	type XcmRouter = XcmRouter;
 	type XcmTeleportFilter = Everything;
+	type Origin = Origin;
+	type Call = Call;
+	const VERSION_DISCOVERY_QUEUE_SIZE: u32 = 100;
+	type AdvertisedXcmVersion = pallet_xcm::CurrentXcmVersion;
 }
 
 impl cumulus_pallet_xcm::Config for Runtime {
@@ -884,9 +901,14 @@ impl cumulus_pallet_dmp_queue::Config for Runtime {
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 }
 
+parameter_types! {
+	pub const MaxAuthorities: u32 = 100_000;
+}
+
 impl pallet_aura::Config for Runtime {
 	type AuthorityId = AuraId;
 	type DisabledValidators = ();
+	type MaxAuthorities = MaxAuthorities;
 }
 
 impl pallet_grandpa::Config for Runtime {
@@ -902,6 +924,8 @@ impl pallet_grandpa::Config for Runtime {
 		KeyTypeId,
 		GrandpaId,
 	)>>::IdentificationTuple;
+
+	type MaxAuthorities = MaxAuthorities;
 
 	type HandleEquivocation = ();
 
@@ -949,7 +973,7 @@ impl orml_tokens::Config for Runtime {
 	type Amount = Amount;
 	type Balance = Balance;
 	type CurrencyId = CurrencyId;
-	type DustRemovalWhitelist = ();
+	type DustRemovalWhitelist = Nothing;
 	type Event = Event;
 	type ExistentialDeposits = ExistentialDeposits;
 	type MaxLocks = MaxLocks;
@@ -964,7 +988,7 @@ pub struct FeeNameGetter;
 impl NameGetter<Call> for FeeNameGetter {
 	fn get_name(c: &Call) -> ExtraFeeName {
 		match *c {
-			Call::Salp(bifrost_salp::Call::contribute(..)) => ExtraFeeName::SalpContribute,
+			Call::Salp(bifrost_salp::Call::contribute { .. }) => ExtraFeeName::SalpContribute,
 			_ => ExtraFeeName::NoExtraFee,
 		}
 	}
@@ -976,7 +1000,7 @@ pub struct AggregateExtraFeeFilter;
 impl Contains<Call> for AggregateExtraFeeFilter {
 	fn contains(c: &Call) -> bool {
 		match *c {
-			Call::Salp(bifrost_salp::Call::contribute(..)) => true,
+			Call::Salp(bifrost_salp::Call::contribute { .. }) => true,
 			_ => false,
 		}
 	}
@@ -986,7 +1010,7 @@ pub struct ContributeFeeFilter;
 impl Contains<Call> for ContributeFeeFilter {
 	fn contains(c: &Call) -> bool {
 		match *c {
-			Call::Salp(bifrost_salp::Call::contribute(..)) => true,
+			Call::Salp(bifrost_salp::Call::contribute { .. }) => true,
 			_ => false,
 		}
 	}
@@ -1124,6 +1148,25 @@ impl bifrost_salp::Config for Runtime {
 	type RelayNetwork = RelayNetwork;
 }
 
+impl bifrost_salp_lite::Config for Runtime {
+	type BancorPool = ();
+	type Event = Event;
+	type LeasePeriod = LeasePeriod;
+	type MinContribution = MinContribution;
+	type MultiCurrency = Currencies;
+	type PalletId = BifrostCrowdloanId;
+	type RelayChainToken = PolkadotCurrencyId;
+	type ReleaseCycle = ReleaseCycle;
+	type ReleaseRatio = ReleaseRatio;
+	type BatchKeysLimit = RemoveKeysLimit;
+	type SlotLength = SlotLength;
+	type WeightInfo = weights::bifrost_salp_lite::WeightInfo<Runtime>;
+	type EnsureConfirmAsMultiSig =
+		EnsureOneOf<AccountId, MoreThanHalfCouncil, EnsureConfirmAsMultiSig>;
+	type EnsureConfirmAsGovernance =
+		EnsureOneOf<AccountId, MoreThanHalfCouncil, EnsureRootOrAllTechnicalCommittee>;
+}
+
 parameter_types! {
 	pub const InterventionPercentage: Percent = Percent::from_percent(75);
 	pub const DailyReleasePercentage: Percent = Percent::from_percent(5);
@@ -1212,7 +1255,8 @@ impl zenlink_protocol::Config for Runtime {
 	type PalletId = ZenlinkPalletId;
 	type SelfParaId = SelfParaId;
 	type TargetChains = ZenlinkRegistedParaChains;
-	type XcmExecutor = XcmExecutor<XcmConfig>;
+	type XcmExecutor = ();
+	type WeightInfo = ();
 }
 
 type MultiAssets = ZenlinkMultiAssets<ZenlinkProtocol, Balances, LocalAssetAdaptor<Currencies>>;
@@ -1322,7 +1366,7 @@ impl orml_xtokens::Config for Runtime {
 	type LocationInverter = LocationInverter<Ancestry>;
 	type SelfLocation = SelfLocation;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
-	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
+	type Weigher = FixedWeightBounds<UnitWeightCost, Call, MaxInstructions>;
 	type BaseXcmWeight = XcmWeight;
 }
 
@@ -1401,6 +1445,7 @@ construct_runtime! {
 		Bancor: bifrost_bancor::{Pallet, Call, Storage, Event<T>, Config<T>} = 106,
 		VSBondAuction: bifrost_vsbond_auction::{Pallet, Call, Storage, Event<T>} = 107,
 		LiquidityMining: bifrost_liquidity_mining::{Pallet, Call, Storage, Event<T>} = 108,
+		SalpLite: bifrost_salp_lite::{Pallet, Call, Storage, Event<T>} = 111,
 	}
 }
 
@@ -1510,7 +1555,7 @@ impl_runtime_apis! {
 
 	impl sp_api::Metadata<Block> for Runtime {
 		fn metadata() -> OpaqueMetadata {
-			Runtime::metadata().into()
+			OpaqueMetadata::new(Runtime::metadata().into())
 		}
 	}
 
@@ -1574,7 +1619,7 @@ impl_runtime_apis! {
 		}
 
 		fn authorities() -> Vec<AuraId> {
-			Aura::authorities()
+			Aura::authorities().into_inner()
 		}
 	}
 

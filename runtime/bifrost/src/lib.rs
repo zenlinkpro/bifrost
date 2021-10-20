@@ -72,7 +72,7 @@ use bifrost_runtime_common::{
 	constants::parachains,
 	xcm_impl::{
 		BifrostAccountIdToMultiLocation, BifrostAssetMatcher, BifrostCurrencyIdConvert,
-		BifrostFilteredAssets, BifrostXcmTransactFilter,
+		BifrostFilteredAssets,
 	},
 	CouncilCollective, EnsureRootOrAllTechnicalCommittee, MoreThanHalfCouncil,
 	SlowAdjustingFeeUpdate, TechnicalCollective,
@@ -133,7 +133,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("bifrost"),
 	impl_name: create_runtime_str!("bifrost"),
 	authoring_version: 1,
-	spec_version: 903,
+	spec_version: 906,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -187,26 +187,26 @@ impl Contains<Call> for CallFilter {
 			// call banned
 
 			// ZLK transfer
-			Call::Currencies(orml_currencies::Call::transfer(
-				_,
-				CurrencyId::Token(TokenSymbol::ZLK),
-				_,
-			)) => false,
-			Call::Tokens(orml_tokens::Call::transfer(
-				_,
-				CurrencyId::Token(TokenSymbol::ZLK),
-				_,
-			)) => false,
-			Call::Tokens(orml_tokens::Call::transfer_all(
-				_,
-				CurrencyId::Token(TokenSymbol::ZLK),
-				_,
-			)) => false,
-			Call::Tokens(orml_tokens::Call::transfer_keep_alive(
-				_,
-				CurrencyId::Token(TokenSymbol::ZLK),
-				_,
-			)) => false,
+			Call::Currencies(orml_currencies::Call::transfer {
+				dest: _,
+				currency_id: CurrencyId::Token(TokenSymbol::ZLK),
+				amount: _,
+			}) => false,
+			Call::Tokens(orml_tokens::Call::transfer {
+				dest: _,
+				currency_id: CurrencyId::Token(TokenSymbol::ZLK),
+				amount: _,
+			}) => false,
+			Call::Tokens(orml_tokens::Call::transfer_all {
+				dest: _,
+				currency_id: CurrencyId::Token(TokenSymbol::ZLK),
+				keep_alive: _,
+			}) => false,
+			Call::Tokens(orml_tokens::Call::transfer_keep_alive {
+				dest: _,
+				currency_id: CurrencyId::Token(TokenSymbol::ZLK),
+				amount: _,
+			}) => false,
 
 			Call::PhragmenElection(_) => false,
 			_ => true,
@@ -219,6 +219,7 @@ parameter_types! {
 	pub const RelayCurrencyId: CurrencyId = CurrencyId::Token(TokenSymbol::KSM);
 	pub const StableCurrencyId: CurrencyId = CurrencyId::Stable(TokenSymbol::KUSD);
 	pub SelfParaId: u32 = ParachainInfo::parachain_id().into();
+	pub const PolkadotCurrencyId: CurrencyId = CurrencyId::Token(TokenSymbol::DOT);
 }
 
 parameter_types! {
@@ -284,6 +285,7 @@ parameter_types! {
 	pub const TransferFee: Balance = 1 * MILLIBNC;
 	pub const CreationFee: Balance = 1 * MILLIBNC;
 	pub const TransactionByteFee: Balance = 1 * MICROBNC;
+	pub const OperationalFeeMultiplier: u8 = 5;
 	pub const MaxLocks: u32 = 50;
 	pub const MaxReserves: u32 = 50;
 }
@@ -509,6 +511,7 @@ impl pallet_democracy::Config for Runtime {
 	// Any single technical committee member may veto a coming council proposal, however they can
 	// only do it once and it lasts only for the cool-off period.
 	type VetoOrigin = pallet_collective::EnsureMember<AccountId, TechnicalCollective>;
+	type VoteLockingPeriod = EnactmentPeriod; // Same as EnactmentPeriod
 	type VotingPeriod = VotingPeriod;
 	type WeightInfo = pallet_democracy::weights::SubstrateWeight<Runtime>;
 }
@@ -582,6 +585,7 @@ impl pallet_transaction_payment::Config for Runtime {
 	type FeeMultiplierUpdate = SlowAdjustingFeeUpdate<Self>;
 	type OnChargeTransaction = FlexibleFee;
 	type TransactionByteFee = TransactionByteFee;
+	type OperationalFeeMultiplier = OperationalFeeMultiplier;
 	type WeightToFee = IdentityFee<Balance>;
 }
 
@@ -669,6 +673,7 @@ pub type XcmOriginToTransactDispatchOrigin = (
 parameter_types! {
 	// One XCM operation is 200_000_000 weight, cross-chain transfer ~= 2x of transfer = 3_000_000_000
 	pub UnitWeightCost: Weight = 200_000_000;
+	pub const MaxInstructions: u32 = 100;
 }
 
 match_type! {
@@ -762,18 +767,20 @@ pub fn create_x2_parachain_multilocation(index: u16) -> MultiLocation {
 
 pub struct XcmConfig;
 impl Config for XcmConfig {
+	type AssetClaims = PolkadotXcm;
 	type AssetTransactor = BifrostAssetTransactor;
+	type AssetTrap = PolkadotXcm;
 	type Barrier = Barrier;
 	type Call = Call;
 	type IsReserve = BifrostFilteredAssets;
 	type IsTeleporter = BifrostFilteredAssets;
 	type LocationInverter = LocationInverter<Ancestry>;
 	type OriginConverter = XcmOriginToTransactDispatchOrigin;
-	type ResponseHandler = ();
+	type ResponseHandler = PolkadotXcm;
 	type SubscriptionService = PolkadotXcm;
 	type Trader = Trader;
-	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
-	type XcmSender = XcmRouter; // Don't handle responses for now.
+	type Weigher = FixedWeightBounds<UnitWeightCost, Call, MaxInstructions>;
+	type XcmSender = XcmRouter;
 }
 
 /// No local origins on this chain are allowed to dispatch XCM sends/executions.
@@ -793,12 +800,16 @@ impl pallet_xcm::Config for Runtime {
 	type ExecuteXcmOrigin = EnsureXcmOrigin<Origin, LocalOriginToLocation>;
 	type LocationInverter = LocationInverter<Ancestry>;
 	type SendXcmOrigin = EnsureXcmOrigin<Origin, LocalOriginToLocation>;
-	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
+	type Weigher = FixedWeightBounds<UnitWeightCost, Call, MaxInstructions>;
 	type XcmExecuteFilter = Nothing;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 	type XcmReserveTransferFilter = Everything;
 	type XcmRouter = XcmRouter;
 	type XcmTeleportFilter = Everything;
+	type Origin = Origin;
+	type Call = Call;
+	const VERSION_DISCOVERY_QUEUE_SIZE: u32 = 100;
+	type AdvertisedXcmVersion = pallet_xcm::CurrentXcmVersion;
 }
 
 impl cumulus_pallet_xcm::Config for Runtime {
@@ -851,9 +862,14 @@ impl pallet_authorship::Config for Runtime {
 	type UncleGenerations = UncleGenerations;
 }
 
+parameter_types! {
+	pub const MaxAuthorities: u32 = 100_000;
+}
+
 impl pallet_aura::Config for Runtime {
 	type AuthorityId = AuraId;
 	type DisabledValidators = ();
+	type MaxAuthorities = MaxAuthorities;
 }
 
 parameter_types! {
@@ -909,8 +925,10 @@ orml_traits::parameter_type_with_key! {
 			&CurrencyId::Token(TokenSymbol::KAR) => 10 * MILLICENTS,
 			&CurrencyId::Token(TokenSymbol::ZLK) => 1_000_000_000_000,	// ZLK has a decimals of 10e18
 			&CurrencyId::VSToken(TokenSymbol::KSM) => 10 * MILLICENTS,
+			&CurrencyId::VSToken(TokenSymbol::DOT) => 10 * MILLICENTS,
 			&CurrencyId::VSBond(TokenSymbol::BNC, ..) => 10 * MILLICENTS,
 			&CurrencyId::VSBond(TokenSymbol::KSM, ..) => 10 * MILLICENTS,
+			&CurrencyId::VSBond(TokenSymbol::DOT, ..) => 10 * MILLICENTS,
 			&CurrencyId::LPToken(..) => 10 * MILLICENTS,
 			_ => Balance::max_value() // unsupported
 		}
@@ -956,7 +974,7 @@ impl orml_xtokens::Config for Runtime {
 	type LocationInverter = LocationInverter<Ancestry>;
 	type SelfLocation = SelfLocation;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
-	type Weigher = FixedWeightBounds<UnitWeightCost, Call>;
+	type Weigher = FixedWeightBounds<UnitWeightCost, Call, MaxInstructions>;
 	type BaseXcmWeight = XcmWeight;
 }
 
@@ -980,7 +998,7 @@ pub struct FeeNameGetter;
 impl NameGetter<Call> for FeeNameGetter {
 	fn get_name(c: &Call) -> ExtraFeeName {
 		match *c {
-			Call::Salp(bifrost_salp::Call::contribute(..)) => ExtraFeeName::SalpContribute,
+			Call::Salp(bifrost_salp::Call::contribute { .. }) => ExtraFeeName::SalpContribute,
 			_ => ExtraFeeName::NoExtraFee,
 		}
 	}
@@ -992,7 +1010,7 @@ pub struct AggregateExtraFeeFilter;
 impl Contains<Call> for AggregateExtraFeeFilter {
 	fn contains(c: &Call) -> bool {
 		match *c {
-			Call::Salp(bifrost_salp::Call::contribute(..)) => true,
+			Call::Salp(bifrost_salp::Call::contribute { .. }) => true,
 			_ => false,
 		}
 	}
@@ -1002,7 +1020,7 @@ pub struct ContributeFeeFilter;
 impl Contains<Call> for ContributeFeeFilter {
 	fn contains(c: &Call) -> bool {
 		match *c {
-			Call::Salp(bifrost_salp::Call::contribute(..)) => true,
+			Call::Salp(bifrost_salp::Call::contribute { .. }) => true,
 			_ => false,
 		}
 	}
@@ -1078,7 +1096,7 @@ parameter_types! {
 	pub const SlotLength: BlockNumber = 8u32 as BlockNumber;
 	pub const XcmTransferOrigin: TransferOriginType = TransferOriginType::FromRelayChain;
 	pub XcmWeight: XcmBaseWeight = XCM_WEIGHT.into();
-	pub ContributionWeight:XcmBaseWeight = 893125000.into();
+	pub ContributionWeight:XcmBaseWeight = XCM_WEIGHT.into();
 	pub AddProxyWeight:XcmBaseWeight = XCM_WEIGHT.into();
 	pub ConfirmMuitiSigAccount: AccountId = hex!["e4da05f08e89bf6c43260d96f26fffcfc7deae5b465da08669a9d008e64c2c63"].into();
 	pub RelaychainSovereignSubAccount: MultiLocation = create_x2_multilocation(ParachainDerivedProxyAccountType::Salp as u16);
@@ -1115,6 +1133,25 @@ impl bifrost_salp::Config for Runtime {
 	type TransactProxyType = SalpProxyType;
 	type TransactType = SalpTransactType;
 	type RelayNetwork = RelayNetwork;
+}
+
+impl bifrost_salp_lite::Config for Runtime {
+	type BancorPool = ();
+	type Event = Event;
+	type LeasePeriod = LeasePeriod;
+	type MinContribution = MinContribution;
+	type MultiCurrency = Currencies;
+	type PalletId = BifrostCrowdloanId;
+	type RelayChainToken = PolkadotCurrencyId;
+	type ReleaseCycle = ReleaseCycle;
+	type ReleaseRatio = ReleaseRatio;
+	type BatchKeysLimit = RemoveKeysLimit;
+	type SlotLength = SlotLength;
+	type WeightInfo = weights::bifrost_salp_lite::WeightInfo<Runtime>;
+	type EnsureConfirmAsMultiSig =
+		EnsureOneOf<AccountId, MoreThanHalfCouncil, EnsureConfirmAsMultiSig>;
+	type EnsureConfirmAsGovernance =
+		EnsureOneOf<AccountId, MoreThanHalfCouncil, EnsureRootOrAllTechnicalCommittee>;
 }
 
 parameter_types! {
@@ -1192,7 +1229,8 @@ impl zenlink_protocol::Config for Runtime {
 	type PalletId = ZenlinkPalletId;
 	type SelfParaId = SelfParaId;
 	type TargetChains = ZenlinkRegistedParaChains;
-	type XcmExecutor = XcmExecutor<XcmConfig>;
+	type XcmExecutor = ();
+	type WeightInfo = ();
 }
 
 type MultiAssets = ZenlinkMultiAssets<ZenlinkProtocol, Balances, LocalAssetAdaptor<Currencies>>;
@@ -1331,6 +1369,7 @@ construct_runtime! {
 		LiquidityMining: bifrost_liquidity_mining::{Pallet, Call, Storage, Event<T>} = 108,
 		TokenIssuer: bifrost_token_issuer::{Pallet, Call, Storage, Event<T>} = 109,
 		LighteningRedeem: bifrost_lightening_redeem::{Pallet, Call, Storage, Event<T>} = 110,
+		SalpLite: bifrost_salp_lite::{Pallet, Call, Storage, Event<T>} = 111,
 	}
 }
 
@@ -1431,18 +1470,23 @@ impl_runtime_apis! {
 		Block,
 		Balance,
 	> for Runtime {
-		fn query_info(uxt: <Block as BlockT>::Extrinsic, len: u32) -> pallet_transaction_payment::RuntimeDispatchInfo<Balance> {
+		fn query_info(
+			uxt: <Block as BlockT>::Extrinsic,
+			len: u32,
+		) -> pallet_transaction_payment_rpc_runtime_api::RuntimeDispatchInfo<Balance> {
 			TransactionPayment::query_info(uxt, len)
 		}
-
-		fn query_fee_details(uxt: <Block as BlockT>::Extrinsic, len: u32) -> pallet_transaction_payment_rpc_runtime_api::FeeDetails<Balance> {
+		fn query_fee_details(
+			uxt: <Block as BlockT>::Extrinsic,
+			len: u32,
+		) -> pallet_transaction_payment::FeeDetails<Balance> {
 			TransactionPayment::query_fee_details(uxt, len)
 		}
 	}
 
 	impl sp_api::Metadata<Block> for Runtime {
 		fn metadata() -> OpaqueMetadata {
-			Runtime::metadata().into()
+			OpaqueMetadata::new(Runtime::metadata().into())
 		}
 	}
 
@@ -1476,7 +1520,7 @@ impl_runtime_apis! {
 		}
 
 		fn authorities() -> Vec<AuraId> {
-			Aura::authorities()
+			Aura::authorities().into_inner()
 		}
 	}
 

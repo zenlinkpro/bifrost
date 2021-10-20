@@ -16,8 +16,20 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-//! Subkey utility, based on node_runtime.
+#![cfg_attr(not(feature = "std"), no_std)]
 
-fn main() -> Result<(), sc_cli::Error> {
-	subkey::run()
+use codec::Codec;
+use node_primitives::{Balance, RpcContributionStatus};
+use sp_api::decl_runtime_apis;
+
+decl_runtime_apis! {
+	pub trait SalpRuntimeApi<ParaId,AccountId> where
+		ParaId: Codec,
+		AccountId: Codec,
+	{
+		fn get_contribution(
+			index: ParaId,
+			who: AccountId
+		) -> (Balance,RpcContributionStatus);
+	}
 }
