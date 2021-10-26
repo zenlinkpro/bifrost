@@ -98,7 +98,7 @@ pub mod pallet {
 		PalletId,
 	};
 	use frame_system::pallet_prelude::*;
-	use node_primitives::{BancorHandler, CurrencyId, LeasePeriod, ParaId};
+	use node_primitives::{BancorHandler, CurrencyId, LeasePeriod, MessageId, ParaId};
 	use orml_traits::{currency::TransferAll, MultiCurrency, MultiReservableCurrency};
 	use sp_arithmetic::Percent;
 	use sp_std::prelude::*;
@@ -164,7 +164,7 @@ pub mod pallet {
 		/// Create a new crowdloaning campaign. [fund_index]
 		Created(ParaId),
 		/// Contributed to a crowd sale. [who, fund_index, amount]
-		Contributed(AccountIdOf<T>, ParaId, BalanceOf<T>),
+		Issued(AccountIdOf<T>, ParaId, BalanceOf<T>, MessageId),
 		/// Withdrew full balance of a contributor. [who, fund_index, amount]
 		Withdrew(ParaId, BalanceOf<T>),
 		/// refund to account. [who, fund_index,value]
@@ -245,6 +245,17 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn redeem_pool)]
 	pub(super) type RedeemPool<T: Config> = StorageValue<_, BalanceOf<T>, ValueQuery>;
+
+	/// Funds to migrate
+	#[pallet::storage]
+	#[pallet::getter(fn to_migrate_funds)]
+	pub(super) type FundsToMigrate<T: Config> = StorageMap<
+		_,
+		Blake2_128Concat,
+		ParaId,
+		Option<FundInfo<BalanceOf<T>, LeasePeriod>>,
+		ValueQuery,
+	>;
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
@@ -355,8 +366,7 @@ pub mod pallet {
 				None => fund.status,
 				Some(status) => status,
 			};
-
-			Funds::<T>::insert(
+			FundsToMigrate::<T>::insert(
 				index,
 				Some(FundInfo {
 					cap,
@@ -367,66 +377,70 @@ pub mod pallet {
 					trie_index: fund.trie_index,
 				}),
 			);
-
 			Self::deposit_event(Event::<T>::Edited(index));
 			Ok(())
 		}
 
 		/// Unlock the reserved vsToken/vsBond after fund success
-		#[pallet::weight((
-		0,
-		DispatchClass::Normal,
-		Pays::No
-		))]
+		#[pallet::weight(T::WeightInfo::batch_unlock(T::BatchKeysLimit::get()))]
 		#[transactional]
 		pub fn batch_migrate(
 			origin: OriginFor<T>,
 			#[pallet::compact] index: ParaId,
-			first_slot: LeasePeriod,
-			last_slot: LeasePeriod,
 		) -> DispatchResult {
-			T::EnsureConfirmAsMultiSig::ensure_origin(origin)?;
-
+			ensure_signed(origin)?;
 			let fund = Self::funds(index).ok_or(Error::<T>::InvalidParaId)?;
 			ensure!(
 				fund.status == FundStatus::Failed || fund.status == FundStatus::RefundWithdrew,
 				Error::<T>::InvalidFundStatus
 			);
-
-			ensure!(first_slot > fund.first_slot, Error::<T>::MigrateSlotBeforeFirstSlot);
+			let to_migrate_fund = Self::to_migrate_funds(index).ok_or(Error::<T>::InvalidParaId)?;
 
 			let mut migrate_count = 0u32;
 			let contributions = Self::contribution_iterator(fund.trie_index);
 			let mut all_migrated = true;
 
-			for (who, (contributed, status)) in contributions {
-				if migrate_count >= T::BatchKeysLimit::get() {
-					// Not everyone was able to be refunded this time around.
-					all_migrated = false;
-					break;
-				}
-				if status != ContributionStatus::MigratedIdle {
-					#[allow(non_snake_case)]
-					let (_, vsBond) = Self::vsAssets(index, fund.first_slot, fund.last_slot);
+			if fund.first_slot != to_migrate_fund.first_slot ||
+				fund.last_slot != to_migrate_fund.last_slot
+			{
+				for (who, (contributed, status)) in contributions {
+					if migrate_count >= T::BatchKeysLimit::get() {
+						// Not everyone was able to be refunded this time around.
+						all_migrated = false;
+						break;
+					}
+					if status != ContributionStatus::MigrateToIdle {
+						#[allow(non_snake_case)]
+						let (_, vsBond) = Self::vsAssets(index, fund.first_slot, fund.last_slot);
 
-					let balance = T::MultiCurrency::slash_reserved(vsBond, &who, contributed);
-					ensure!(balance == Zero::zero(), Error::<T>::NotEnoughReservedAssetsToRefund);
+						let balance = T::MultiCurrency::slash_reserved(vsBond, &who, contributed);
+						ensure!(
+							balance == Zero::zero(),
+							Error::<T>::NotEnoughReservedAssetsToRefund
+						);
 
-					let (_, vs_bond_new) = Self::vsAssets(index, first_slot, last_slot);
-					T::MultiCurrency::deposit(vs_bond_new, &who, contributed)?;
-					T::MultiCurrency::reserve(vs_bond_new, &who, contributed)?;
+						let (_, vs_bond_new) = Self::vsAssets(
+							index,
+							to_migrate_fund.first_slot,
+							to_migrate_fund.last_slot,
+						);
+						T::MultiCurrency::deposit(vs_bond_new, &who, contributed)?;
+						T::MultiCurrency::reserve(vs_bond_new, &who, contributed)?;
 
-					Self::put_contribution(
-						fund.trie_index,
-						&who,
-						contributed,
-						ContributionStatus::MigratedIdle,
-					);
-					migrate_count += 1;
+						Self::put_contribution(
+							fund.trie_index,
+							&who,
+							contributed,
+							ContributionStatus::MigrateToIdle,
+						);
+						migrate_count += 1;
+					}
 				}
 			}
 
 			if all_migrated {
+				FundsToMigrate::<T>::remove(index);
+				Funds::<T>::insert(index, Some(to_migrate_fund));
 				Self::deposit_event(Event::<T>::AllMigrated(index));
 			}
 
@@ -582,6 +596,7 @@ pub mod pallet {
 			who: AccountIdOf<T>,
 			#[pallet::compact] index: ParaId,
 			#[pallet::compact] value: BalanceOf<T>,
+			message_id: MessageId,
 		) -> DispatchResult {
 			T::EnsureConfirmAsMultiSig::ensure_origin(origin.clone())?;
 
@@ -595,7 +610,7 @@ pub mod pallet {
 
 			let (contributed, status) = Self::contribution(fund.trie_index, &who);
 			ensure!(
-				status == ContributionStatus::Idle || status == ContributionStatus::MigratedIdle,
+				status == ContributionStatus::Idle || status == ContributionStatus::MigrateToIdle,
 				Error::<T>::InvalidContributionStatus
 			);
 
@@ -619,7 +634,7 @@ pub mod pallet {
 				contributed_new,
 				ContributionStatus::Idle,
 			);
-			Self::deposit_event(Event::Contributed(who, index, value));
+			Self::deposit_event(Event::Issued(who, index, value, message_id));
 
 			Ok(())
 		}

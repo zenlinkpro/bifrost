@@ -25,7 +25,7 @@ pub enum ContributionStatus<BalanceOf> {
 	Refunded,
 	Unlocked,
 	Redeemed,
-	MigratedIdle,
+	MigrateToIdle,
 }
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, Copy, RuntimeDebug)]
@@ -64,7 +64,7 @@ where
 			Self::Refunded => RpcContributionStatus::Refunded,
 			Self::Unlocked => RpcContributionStatus::Unlocked,
 			Self::Redeemed => RpcContributionStatus::Redeemed,
-			Self::MigratedIdle => RpcContributionStatus::MigratedIdle,
+			Self::MigrateToIdle => RpcContributionStatus::MigratedIdle,
 		};
 		rpc_status
 	}
@@ -75,3 +75,5 @@ impl<BalanceOf> Default for ContributionStatus<BalanceOf> {
 		Self::Idle
 	}
 }
+
+pub type MessageId = [u8; 32];

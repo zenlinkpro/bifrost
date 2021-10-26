@@ -755,16 +755,6 @@ pub type Trader = (
 	FixedRateOfFungible<KusdPerSecond, ToTreasury>,
 );
 
-pub fn create_x2_parachain_multilocation(index: u16) -> MultiLocation {
-	MultiLocation::new(
-		1,
-		X1(AccountId32 {
-			network: NetworkId::Any,
-			id: Utility::derivative_account_id(ParachainInfo::get().into_account(), index).into(),
-		}),
-	)
-}
-
 pub struct XcmConfig;
 impl Config for XcmConfig {
 	type AssetClaims = PolkadotXcm;
@@ -773,7 +763,7 @@ impl Config for XcmConfig {
 	type Barrier = Barrier;
 	type Call = Call;
 	type IsReserve = BifrostFilteredAssets;
-	type IsTeleporter = BifrostFilteredAssets;
+	type IsTeleporter = ();
 	type LocationInverter = LocationInverter<Ancestry>;
 	type OriginConverter = XcmOriginToTransactDispatchOrigin;
 	type ResponseHandler = PolkadotXcm;
@@ -820,7 +810,7 @@ impl cumulus_pallet_xcm::Config for Runtime {
 impl cumulus_pallet_xcmp_queue::Config for Runtime {
 	type ChannelInfo = ParachainSystem;
 	type Event = Event;
-	type VersionWrapper = ();
+	type VersionWrapper = PolkadotXcm;
 	type XcmExecutor = XcmExecutor<XcmConfig>;
 }
 
