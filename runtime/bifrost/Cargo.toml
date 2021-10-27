@@ -18,6 +18,7 @@ smallvec = "1.6.1"
 static_assertions = "1.1.0"
 # primitives
 node-primitives = { default-features = false, path = "../../node/primitives" }
+ethereum-bridge = { default-features = false, path = "../../ethereum-bridge" }
 sp-api = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.11", default-features = false }
 sp-arithmetic = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.11", default-features = false }
 sp-block-builder = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.11", default-features = false }
@@ -180,7 +181,8 @@ std = [
 	"bifrost-lightening-redeem/std",
 	"zenlink-protocol/std",
 	"zenlink-protocol-runtime-api/std",
-	"xcm-support/std"
+	"xcm-support/std",
+	"ethereum-bridge/std",
 ]
 with-tracing = ["frame-executive/with-tracing"]
 

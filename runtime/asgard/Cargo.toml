@@ -17,6 +17,7 @@ smallvec = "1.6.1"
 
 # primitives
 node-primitives = { default-features = false, path = "../../node/primitives" }
+ethereum-bridge = { default-features = false, path = "../../ethereum-bridge" }
 sp-block-builder = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.11", default-features = false}
 sp-inherents = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.11", default-features = false }
 sp-offchain = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.11", default-features = false }
@@ -193,6 +194,7 @@ std = [
 	"bifrost-token-issuer/std",
 	"bifrost-lightening-redeem/std",
 	"xcm-support/std",
+	"ethereum-bridge/std",
 	"orml-currencies/std",
 	"orml-traits/std",
 	"orml-tokens/std",
