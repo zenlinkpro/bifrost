@@ -94,6 +94,7 @@ jsonrpc-core = "18.0.0"
 
 # zenlink rpc
 zenlink-protocol-runtime-api = "*"
+stable-amm-runtime-api = "*"
 
 # Bifrost rpc
 bifrost-flexible-fee-rpc-runtime-api = { path = "../../pallets/flexible-fee/rpc/runtime-api" }

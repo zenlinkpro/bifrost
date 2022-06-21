@@ -30,10 +30,7 @@ use sp_std::{
 };
 use zenlink_protocol::{AssetId, LOCAL, NATIVE};
 
-use crate::{
-	traits::{CurrencyIdExt, TokenInfo},
-	LeasePeriod, ParaId,
-};
+use crate::{traits::{CurrencyIdExt, TokenInfo}, LeasePeriod, ParaId, PoolId};
 pub const BIFROST_PARACHAIN_ID: u32 = 2001; // bifrost parachain id
 
 macro_rules! create_currency_id {
@@ -157,7 +154,8 @@ macro_rules! create_currency_id {
 					| Self::VSToken(ts)
 					| Self::VSBond(ts, ..) => ts as u8,
 					Self::ForeignAsset(..) => 0u8,
-					Self::LPToken(..) => 0u8
+					Self::LPToken(..) => 0u8,
+					Self::StableLpToken(..) => 0u8,
 				} as u64;
 
 		 		let discr = (c_discr << 8) + t_discr;
@@ -167,7 +165,8 @@ macro_rules! create_currency_id {
 					| Self::VToken(..)
 					| Self::Native(..)
 					| Self::Stable(..)
-					| Self::VSToken(..) => (0x0000_ffff & discr) as u64,
+					| Self::VSToken(..)
+					| Self::StableLpToken(..)=> (0x0000_ffff & discr) as u64,
 					Self::VSBond(_, pid, lp1, lp2) => {
 						// NOTE: ParaId representation
 						//
@@ -212,6 +211,7 @@ macro_rules! create_currency_id {
 						let _c2: CurrencyId = c2_u64.try_into().unwrap_or_default();
 						Some(stringify!(_c1.name(), ",", _c2.name()))
 					},
+					CurrencyId::StableLpToken(..) => Some(stringify!("stable_pool_lp",)),
 					_ => None
 				}
 			}
@@ -225,6 +225,7 @@ macro_rules! create_currency_id {
 					$(CurrencyId::VSToken(TokenSymbol::$symbol) => Some(stringify!($symbol)),)*
 					$(CurrencyId::VSBond(TokenSymbol::$symbol, ..) => Some(stringify!($symbol)),)*
 					CurrencyId::LPToken(_ts1, _, _ts2, _) => Some(stringify!(_ts1, ",", _ts2)),
+					CurrencyId::StableLpToken(..) => Some(stringify!("stable_pool_lp_")),
 					_ => None
 				}
 			}
@@ -238,6 +239,7 @@ macro_rules! create_currency_id {
 					$(CurrencyId::VSToken(TokenSymbol::$symbol) => Some($deci),)*
 					$(CurrencyId::VSBond(TokenSymbol::$symbol, ..) => Some($deci),)*
 					CurrencyId::LPToken(..) => Some(1u8),
+					CurrencyId::StableLpToken(..) => Some(1u8),
 					_ => None
 				}
 			}
@@ -313,6 +315,7 @@ pub enum CurrencyId {
 	// [currency1 Tokensymbol, currency1 TokenType, currency2 TokenSymbol, currency2 TokenType]
 	LPToken(TokenSymbol, u8, TokenSymbol, u8),
 	ForeignAsset(ForeignAssetId),
+	StableLpToken(PoolId),
 }
 
 impl Default for CurrencyId {
@@ -377,6 +380,7 @@ impl CurrencyId {
 			Self::VSBond(..) => 5,
 			Self::LPToken(..) => 6,
 			Self::ForeignAsset(..) => 7,
+			Self::StableLpToken(..) => 8,
 		}
 	}
 }

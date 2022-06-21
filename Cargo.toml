@@ -107,3 +107,6 @@ orml-unknown-tokens = { git = "https://github.com/open-web3-stack/open-runtime-m
 orml-xcm = { git = "https://github.com/open-web3-stack/open-runtime-module-library", rev = "238828ac2bafe498a2a071317639e9404d6f6994" }
 orml-xcm-support = { git = "https://github.com/open-web3-stack/open-runtime-module-library", rev = "238828ac2bafe498a2a071317639e9404d6f6994" }
 parachain-staking = { git = "https://github.com/bifrost-finance/parachain-staking", rev = "a260296833405403c2b532180592c4fcec01ca56" }
+stable-amm = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "41079853ca5e5363a0a48aa2d088d5d8e8a687ba" }
+stable-amm-rpc = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "41079853ca5e5363a0a48aa2d088d5d8e8a687ba" }
+stable-amm-runtime-api = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "41079853ca5e5363a0a48aa2d088d5d8e8a687ba" }

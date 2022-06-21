@@ -118,6 +118,8 @@ use zenlink_protocol::{
 	make_x2_location, AssetBalance, AssetId as ZenlinkAssetId, LocalAssetHandler,
 	MultiAssetsHandler, PairInfo, ZenlinkMultiAssets,
 };
+
+use stable_amm::traits::ValidateCurrency;
 // Weights used in the runtime.
 mod weights;
 
@@ -302,6 +304,7 @@ parameter_types! {
 	pub const BifrostVsbondPalletId: PalletId = PalletId(*b"bf/salpb");
 	pub const SlpEntrancePalletId: PalletId = PalletId(*b"bf/vtkin");
 	pub const SlpExitPalletId: PalletId = PalletId(*b"bf/vtout");
+	pub const StableAmmPalletId: PalletId = PalletId(*b"bf/stamm");
 }
 
 impl frame_system::Config for Runtime {
@@ -1771,6 +1774,32 @@ impl merkle_distributor::Config for Runtime {
 	type WeightInfo = ();
 }
 
+impl stable_amm::Config for Runtime {
+	type Event = Event;
+	type CurrencyId = CurrencyId;
+	type MultiCurrency = Currencies;
+	type PoolId = u32;
+	type TimeProvider = Timestamp;
+	type EnsurePoolAsset = StableAmmVerifyPoolAsset;
+	type PoolCurrencySymbolLimit = StringLimit;
+	type PalletId = StableAmmPalletId;
+}
+
+pub struct StableAmmVerifyPoolAsset;
+
+impl ValidateCurrency<CurrencyId> for StableAmmVerifyPoolAsset{
+	fn validate_pooled_currency(_currencies: &[CurrencyId]) -> bool {
+		true
+	}
+
+	fn validate_pool_lp_currency(_currency_id: CurrencyId) -> bool {
+		if Currencies::total_issuance(_currency_id) > 0{
+			return false
+		}
+		true
+	}
+}
+
 parameter_types! {
 	pub const ZenlinkPalletId: PalletId = PalletId(*b"/zenlink");
 	pub const GetExchangeFee: (u32, u32) = (3, 1000);   // 0.3%
@@ -1955,6 +1984,7 @@ construct_runtime! {
 		OrmlXcm: orml_xcm::{Pallet, Call, Event<T>} = 74,
 		ZenlinkProtocol: zenlink_protocol::{Pallet, Call, Storage, Event<T>} = 80,
 		MerkleDistributor: merkle_distributor::{Pallet, Call, Storage, Event<T>} = 81,
+		StableAMM: stable_amm::{Pallet, Call, Storage, Event<T>} = 82,
 
 		// Bifrost modules
 		FlexibleFee: bifrost_flexible_fee::{Pallet, Call, Storage, Event<T>} = 100,
@@ -2191,6 +2221,80 @@ impl_runtime_apis! {
 				amount_0_min,
 				amount_1_min
 			)
+		}
+	}
+
+	impl stable_amm_runtime_api::StableAmmApi<Block, CurrencyId, u128, AccountId, u32> for Runtime{
+		fn get_virtual_price(pool_id: PoolId)->Balance{
+			StableAMM::calculate_virtual_price(pool_id).unwrap_or_default()
+		}
+
+		fn get_a(pool_id: PoolId)->Balance{
+			StableAMM::get_a(pool_id)
+		}
+
+		fn get_a_precise(pool_id: PoolId)->Balance{
+			if let Some(pool) = StableAMM::pools(pool_id){
+				StableAMM::get_a_precise(&pool).unwrap_or_default()
+			}else{
+				Balance::default()
+			}
+		}
+
+		fn get_currencies(pool_id: PoolId)->Vec<CurrencyId>{
+			StableAMM::get_currencies(pool_id)
+		}
+
+		fn get_currency(pool_id: PoolId, index: u32)->Option<CurrencyId>{
+			StableAMM::get_currency(pool_id, index)
+		}
+
+		fn get_lp_currency(pool_id: PoolId)->Option<CurrencyId>{
+			StableAMM::get_lp_currency(pool_id)
+		}
+
+		fn get_currency_precision_multipliers(pool_id: PoolId)->Vec<Balance>{
+			StableAMM::get_currency_precision_multipliers(pool_id)
+		}
+
+		fn get_currency_balances(pool_id: PoolId)->Vec<Balance>{
+			StableAMM::get_currency_balances(pool_id)
+		}
+
+		fn get_number_of_currencies(pool_id: PoolId)->u32{
+			StableAMM::get_number_of_currencies(pool_id)
+		}
+
+		fn get_admin_balances(pool_id: PoolId)->Vec<Balance>{
+			StableAMM::get_admin_balances(pool_id)
+		}
+
+		fn calculate_currency_amount(pool_id: PoolId, amounts:Vec<Balance>, deposit: bool)->Balance{
+			StableAMM::calculate_currency_amount(pool_id, amounts, deposit).unwrap_or_default()
+		}
+
+		fn calculate_swap(pool_id: PoolId, in_index: u32, out_index: u32, in_amount: Balance)->Balance{
+			if let Some(pool) = StableAMM::pools(pool_id){
+				StableAMM::calculate_swap_amount(&pool, in_index as usize, out_index as usize, in_amount).unwrap_or_default()
+			}else{
+				Balance::default()
+			}
+		}
+
+		fn calculate_remove_liquidity(pool_id: PoolId, amount: Balance)->Vec<Balance>{
+			if let Some(pool) = StableAMM::pools(pool_id){
+			StableAMM::calculate_removed_liquidity(&pool, amount).unwrap_or_default()
+			}else{
+				Vec::new()
+			}
+		}
+
+		fn calculate_remove_liquidity_one_currency(pool_id: PoolId, amount:Balance, index: u32)->Balance{
+			if let Some(pool) = StableAMM::pools(pool_id){
+				StableAMM::calculate_remove_liquidity_one_token(&pool, amount, index).unwrap_or_default().0
+			}else{
+				Balance::default()
+			}
 		}
 	}
 

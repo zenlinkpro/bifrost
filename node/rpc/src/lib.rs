@@ -39,7 +39,7 @@ use bifrost_liquidity_mining_rpc_api::{LiquidityMiningRpcApi, LiquidityMiningRpc
 use bifrost_liquidity_mining_rpc_runtime_api::LiquidityMiningRuntimeApi;
 use bifrost_salp_rpc_api::{SalpRpcApi, SalpRpcWrapper};
 use bifrost_salp_rpc_runtime_api::SalpRuntimeApi;
-use node_primitives::{AccountId, Balance, Block, Nonce, ParaId, PoolId};
+use node_primitives::{AccountId, Balance, Block, CurrencyId, Nonce, ParaId, PoolId};
 use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApi};
 use sc_rpc_api::DenyUnsafe;
 use sc_transaction_pool_api::TransactionPool;
@@ -49,6 +49,8 @@ use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
 use substrate_frame_rpc_system::{FullSystem, SystemApi};
 use zenlink_protocol_rpc::{ZenlinkProtocol, ZenlinkProtocolApi};
 use zenlink_protocol_runtime_api::ZenlinkProtocolApi as ZenlinkProtocolRuntimeApi;
+use stable_amm_rpc::{StableAmm, StableAmmApi};
+// use stable_amm_runtime_api::StableAmmApi as StableAmmRuntimeApi;
 
 /// Full client dependencies.
 pub struct FullDeps<C, P> {
@@ -78,6 +80,7 @@ where
 	C::Api: SalpRuntimeApi<Block, ParaId, AccountId>,
 	C::Api: LiquidityMiningRuntimeApi<Block, AccountId, PoolId>,
 	C::Api: ZenlinkProtocolRuntimeApi<Block, AccountId>,
+	C::Api: stable_amm_runtime_api::StableAmmApi<Block, CurrencyId, Balance, AccountId, PoolId>,
 	C::Api: BlockBuilder<Block>,
 	P: TransactionPool + Sync + Send + 'static,
 {
@@ -96,6 +99,8 @@ where
 	)));
 
 	io.extend_with(ZenlinkProtocolApi::to_delegate(ZenlinkProtocol::new(client.clone())));
+
+	io.extend_with(StableAmmApi::to_delegate(StableAmm::new(client.clone())));
 
 	io
 }
