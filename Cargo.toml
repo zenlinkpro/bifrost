@@ -95,9 +95,9 @@ yamux = { opt-level = 3 }
 zeroize = { opt-level = 3 }
 
 [patch.crates-io]
-zenlink-protocol = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "3003ef14e367c6f69cb6ce7bdfe9327a286160e9" }
-zenlink-protocol-rpc = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "3003ef14e367c6f69cb6ce7bdfe9327a286160e9" }
-zenlink-protocol-runtime-api = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "3003ef14e367c6f69cb6ce7bdfe9327a286160e9" }
+zenlink-protocol = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "700d4f050b67214f38ca43943f3b47a1272d3bbf" }
+zenlink-protocol-rpc = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "700d4f050b67214f38ca43943f3b47a1272d3bbf" }
+zenlink-protocol-runtime-api = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "700d4f050b67214f38ca43943f3b47a1272d3bbf" }
 merkle-distributor = { git = "https://github.com/zenlinkpro/merkle-distributor", rev = "cf30bc0d4c01a8afd2a5d979f4ab327c68999584" }
 orml-traits = { git = "https://github.com/open-web3-stack/open-runtime-module-library", rev = "238828ac2bafe498a2a071317639e9404d6f6994" }
 orml-currencies = { git = "https://github.com/open-web3-stack/open-runtime-module-library", rev = "238828ac2bafe498a2a071317639e9404d6f6994" }
@@ -107,6 +107,7 @@ orml-unknown-tokens = { git = "https://github.com/open-web3-stack/open-runtime-m
 orml-xcm = { git = "https://github.com/open-web3-stack/open-runtime-module-library", rev = "238828ac2bafe498a2a071317639e9404d6f6994" }
 orml-xcm-support = { git = "https://github.com/open-web3-stack/open-runtime-module-library", rev = "238828ac2bafe498a2a071317639e9404d6f6994" }
 parachain-staking = { git = "https://github.com/bifrost-finance/parachain-staking", rev = "a260296833405403c2b532180592c4fcec01ca56" }
-stable-amm = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "41079853ca5e5363a0a48aa2d088d5d8e8a687ba" }
-stable-amm-rpc = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "41079853ca5e5363a0a48aa2d088d5d8e8a687ba" }
-stable-amm-runtime-api = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "41079853ca5e5363a0a48aa2d088d5d8e8a687ba" }
+stable-amm = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "700d4f050b67214f38ca43943f3b47a1272d3bbf" }
+stable-amm-rpc = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "700d4f050b67214f38ca43943f3b47a1272d3bbf" }
+stable-amm-runtime-api = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "700d4f050b67214f38ca43943f3b47a1272d3bbf" }
+swap-router = { git = "https://github.com/zenlinkpro/Zenlink-DEX-Module", rev = "700d4f050b67214f38ca43943f3b47a1272d3bbf" }

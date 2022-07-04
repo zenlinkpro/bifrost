@@ -1676,6 +1676,8 @@ impl bifrost_asset_registry::Config for Runtime {
 	type RegisterOrigin = MoreThanHalfCouncil;
 }
 
+
+
 parameter_types! {
 	pub ParachainAccount: AccountId = ParachainInfo::get().into_account();
 	pub ContributionWeight:XcmBaseWeight = RelayXcmBaseWeight::get().into();
@@ -1783,6 +1785,15 @@ impl stable_amm::Config for Runtime {
 	type EnsurePoolAsset = StableAmmVerifyPoolAsset;
 	type PoolCurrencySymbolLimit = StringLimit;
 	type PalletId = StableAmmPalletId;
+}
+
+impl swap_router::Config for Runtime {
+	type Event = Event;
+	type StablePoolId = u32;
+	type Balance = u128;
+	type CurrencyId = CurrencyId;
+	type NormalAmm = ZenlinkProtocol;
+	type StableAMM = StableAMM;
 }
 
 pub struct StableAmmVerifyPoolAsset;
@@ -1985,6 +1996,7 @@ construct_runtime! {
 		ZenlinkProtocol: zenlink_protocol::{Pallet, Call, Storage, Event<T>} = 80,
 		MerkleDistributor: merkle_distributor::{Pallet, Call, Storage, Event<T>} = 81,
 		StableAMM: stable_amm::{Pallet, Call, Storage, Event<T>} = 82,
+		SwapRouter: swap_router::{Pallet, Call, Event<T>} = 83,
 
 		// Bifrost modules
 		FlexibleFee: bifrost_flexible_fee::{Pallet, Call, Storage, Event<T>} = 100,
