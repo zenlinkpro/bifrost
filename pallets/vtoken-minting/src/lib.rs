@@ -274,14 +274,16 @@ pub mod pallet {
 	#[pallet::hooks]
 	impl<T: Config> Hooks<T::BlockNumber> for Pallet<T> {
 		fn on_initialize(_n: T::BlockNumber) -> Weight {
-			Self::handle_on_initialize().map_err(|e| {
-				log::error!(
-					target: "runtime::vtoken-minting",
-					"Received invalid justification for {:?}",
-					e,
-				);
-				e
-			});
+			Self::handle_on_initialize()
+				.map_err(|e| {
+					log::error!(
+						target: "runtime::vtoken-minting",
+						"Received invalid justification for {:?}",
+						e,
+					);
+					e
+				})
+				.ok();
 
 			T::WeightInfo::on_initialize()
 		}
@@ -303,8 +305,7 @@ pub mod pallet {
 
 			let vtoken_id = token_id.to_vtoken().map_err(|_| Error::<T>::NotSupportTokenType)?;
 			let (token_amount_excluding_fee, vtoken_amount, fee) =
-				Self::mint_without_tranfer(&exchanger, vtoken_id, token_id, token_amount)
-					.map_err(|e| e)?;
+				Self::mint_without_tranfer(&exchanger, vtoken_id, token_id, token_amount)?;
 			// Transfer the user's token to EntranceAccount.
 			T::MultiCurrency::transfer(
 				token_id,
@@ -346,9 +347,9 @@ pub mod pallet {
 			let token_pool_amount = Self::token_pool(token_id);
 			let vtoken_total_issuance = T::MultiCurrency::total_issuance(vtoken_id);
 			let token_amount = vtoken_amount
-				.checked_mul(&token_pool_amount.into())
+				.checked_mul(&token_pool_amount)
 				.ok_or(Error::<T>::CalculationOverflow)?
-				.checked_div(&vtoken_total_issuance.into())
+				.checked_div(&vtoken_total_issuance)
 				.ok_or(Error::<T>::CalculationOverflow)?;
 
 			match OngoingTimeUnit::<T>::get(token_id) {
@@ -356,9 +357,8 @@ pub mod pallet {
 					let result_time_unit = Self::add_time_unit(
 						Self::unlock_duration(token_id)
 							.ok_or(Error::<T>::UnlockDurationNotFound)?,
-						time_unit.clone(),
-					)
-					.map_err(|e| e)?;
+						time_unit,
+					)?;
 
 					T::MultiCurrency::withdraw(vtoken_id, &exchanger, vtoken_amount)?;
 					TokenPool::<T>::mutate(&token_id, |pool| -> Result<(), Error<T>> {
@@ -380,7 +380,7 @@ pub mod pallet {
 						(&exchanger, token_amount, &result_time_unit),
 					);
 
-					if let Some(_) = UserUnlockLedger::<T>::get(&exchanger, &token_id) {
+					if UserUnlockLedger::<T>::get(&exchanger, &token_id).is_some() {
 						UserUnlockLedger::<T>::mutate(
 							&exchanger,
 							&token_id,
@@ -394,7 +394,7 @@ pub mod pallet {
 										.checked_add(&token_amount)
 										.ok_or(Error::<T>::CalculationOverflow)?;
 								};
-								return Ok(());
+								Ok(())
 							},
 						)?;
 					} else {
@@ -505,18 +505,17 @@ pub mod pallet {
 												.ok_or(Error::<T>::CalculationOverflow)?;
 											ledger_list_origin.retain(|x| x != index);
 										} else {
-											return Err(
-												Error::<T>::TimeUnitUnlockLedgerNotFound.into()
-											);
+											return Err(Error::<T>::TimeUnitUnlockLedgerNotFound);
 										}
-										return Ok(());
+										Ok(())
 									},
-								);
+								)
+								.ok();
 								tmp_amount = tmp_amount.saturating_sub(unlock_amount);
 								// } else {
 								// 	return Err(Error::<T>::TokenUnlockLedgerNotFound.into());
 							}
-							return false;
+							false
 						} else {
 							TokenUnlockLedger::<T>::mutate_exists(
 								&token_id,
@@ -531,11 +530,12 @@ pub mod pallet {
 											.checked_sub(&tmp_amount)
 											.ok_or(Error::<T>::CalculationOverflow)?;
 									} else {
-										return Err(Error::<T>::TokenUnlockLedgerNotFound.into());
+										return Err(Error::<T>::TokenUnlockLedgerNotFound);
 									}
-									return Ok(());
+									Ok(())
 								},
-							);
+							)
+							.ok();
 							TimeUnitUnlockLedger::<T>::mutate_exists(
 								&time_unit,
 								&token_id,
@@ -549,15 +549,16 @@ pub mod pallet {
 											.checked_sub(&tmp_amount)
 											.ok_or(Error::<T>::CalculationOverflow)?;
 									} else {
-										return Err(Error::<T>::TimeUnitUnlockLedgerNotFound.into());
+										return Err(Error::<T>::TimeUnitUnlockLedgerNotFound);
 									}
-									return Ok(());
+									Ok(())
 								},
-							);
-							return true;
+							)
+							.ok();
+							true
 						}
 					} else {
-						return true;
+						true
 					}
 				});
 				let ledger_list_tmp: Vec<UnlockId> = ledger_list.into_iter().rev().collect();
@@ -585,9 +586,9 @@ pub mod pallet {
 								.checked_sub(&token_amount)
 								.ok_or(Error::<T>::CalculationOverflow)?;
 						} else {
-							return Err(Error::<T>::UserUnlockLedgerNotFound.into());
+							return Err(Error::<T>::UserUnlockLedgerNotFound);
 						}
-						return Ok(());
+						Ok(())
 					},
 				)?;
 			} else {
@@ -595,8 +596,7 @@ pub mod pallet {
 			}
 
 			let (_, vtoken_amount, fee) =
-				Self::mint_without_tranfer(&exchanger, vtoken_id, token_id, token_amount)
-					.map_err(|e| e)?;
+				Self::mint_without_tranfer(&exchanger, vtoken_id, token_id, token_amount)?;
 
 			TokenToRebond::<T>::mutate(&token_id, |value| -> Result<(), Error<T>> {
 				if let Some(value_info) = value {
@@ -604,7 +604,7 @@ pub mod pallet {
 						.checked_add(&token_amount)
 						.ok_or(Error::<T>::CalculationOverflow)?;
 				} else {
-					return Err(Error::<T>::InvalidRebondToken.into());
+					return Err(Error::<T>::InvalidRebondToken);
 				}
 				Ok(())
 			})?;
@@ -648,9 +648,9 @@ pub mod pallet {
 									.ok_or(Error::<T>::CalculationOverflow)?;
 								ledger_list_origin.retain(|&x| x != unlock_id);
 							} else {
-								return Err(Error::<T>::TimeUnitUnlockLedgerNotFound.into());
+								return Err(Error::<T>::TimeUnitUnlockLedgerNotFound);
 							}
-							return Ok(());
+							Ok(())
 						},
 					)?;
 
@@ -668,9 +668,9 @@ pub mod pallet {
 									.ok_or(Error::<T>::CalculationOverflow)?;
 								ledger_list_origin.retain(|&x| x != unlock_id);
 							} else {
-								return Err(Error::<T>::UserUnlockLedgerNotFound.into());
+								return Err(Error::<T>::UserUnlockLedgerNotFound);
 							}
-							return Ok(());
+							Ok(())
 						},
 					)?;
 					CurrencyUnlockingTotal::<T>::mutate(|pool| -> Result<(), Error<T>> {
@@ -687,8 +687,7 @@ pub mod pallet {
 			};
 
 			let (token_amount, vtoken_amount, fee) =
-				Self::mint_without_tranfer(&exchanger, vtoken_id, token_id, unlock_amount)
-					.map_err(|e| e)?;
+				Self::mint_without_tranfer(&exchanger, vtoken_id, token_id, unlock_amount)?;
 
 			TokenToRebond::<T>::mutate(&token_id, |value| -> Result<(), Error<T>> {
 				if let Some(value_info) = value {
@@ -696,7 +695,7 @@ pub mod pallet {
 						.checked_add(&token_amount)
 						.ok_or(Error::<T>::CalculationOverflow)?;
 				} else {
-					return Err(Error::<T>::InvalidRebondToken.into());
+					return Err(Error::<T>::InvalidRebondToken);
 				}
 				Ok(())
 			})?;
@@ -863,16 +862,16 @@ pub mod pallet {
 			let mut vtoken_amount = token_amount_excluding_fee;
 			if token_pool_amount != BalanceOf::<T>::zero() {
 				vtoken_amount = token_amount_excluding_fee
-					.checked_mul(&vtoken_total_issuance.into())
+					.checked_mul(&vtoken_total_issuance)
 					.ok_or(Error::<T>::CalculationOverflow)?
-					.checked_div(&token_pool_amount.into())
+					.checked_div(&token_pool_amount)
 					.ok_or(Error::<T>::CalculationOverflow)?;
 			}
 
 			// Charging fees
-			T::MultiCurrency::transfer(token_id, &exchanger, &T::FeeAccount::get(), mint_fee)?;
+			T::MultiCurrency::transfer(token_id, exchanger, &T::FeeAccount::get(), mint_fee)?;
 			// Issue the corresponding vtoken to the user's account.
-			T::MultiCurrency::deposit(vtoken_id, &exchanger, vtoken_amount)?;
+			T::MultiCurrency::deposit(vtoken_id, exchanger, vtoken_amount)?;
 			TokenPool::<T>::mutate(&token_id, |pool| -> Result<(), Error<T>> {
 				*pool = pool
 					.checked_add(&token_amount_excluding_fee)
@@ -908,9 +907,9 @@ pub mod pallet {
 								.ok_or(Error::<T>::CalculationOverflow)?;
 							ledger_list_origin.retain(|x| x != index);
 						} else {
-							return Err(Error::<T>::TimeUnitUnlockLedgerNotFound.into());
+							return Err(Error::<T>::TimeUnitUnlockLedgerNotFound);
 						}
-						return Ok(());
+						Ok(())
 					},
 				)?;
 
@@ -928,9 +927,9 @@ pub mod pallet {
 								.checked_sub(&unlock_amount)
 								.ok_or(Error::<T>::CalculationOverflow)?;
 						} else {
-							return Err(Error::<T>::UserUnlockLedgerNotFound.into());
+							return Err(Error::<T>::UserUnlockLedgerNotFound);
 						}
-						return Ok(());
+						Ok(())
 					},
 				)?;
 			} else {
@@ -948,9 +947,9 @@ pub mod pallet {
 								.checked_sub(&unlock_amount)
 								.ok_or(Error::<T>::CalculationOverflow)?;
 						} else {
-							return Err(Error::<T>::TokenUnlockLedgerNotFound.into());
+							return Err(Error::<T>::TokenUnlockLedgerNotFound);
 						}
-						return Ok(());
+						Ok(())
 					},
 				)?;
 
@@ -967,9 +966,9 @@ pub mod pallet {
 								.checked_sub(&unlock_amount)
 								.ok_or(Error::<T>::CalculationOverflow)?;
 						} else {
-							return Err(Error::<T>::TimeUnitUnlockLedgerNotFound.into());
+							return Err(Error::<T>::TimeUnitUnlockLedgerNotFound);
 						}
-						return Ok(());
+						Ok(())
 					},
 				)?;
 
@@ -987,9 +986,9 @@ pub mod pallet {
 								.checked_sub(&unlock_amount)
 								.ok_or(Error::<T>::CalculationOverflow)?;
 						} else {
-							return Err(Error::<T>::UserUnlockLedgerNotFound.into());
+							return Err(Error::<T>::UserUnlockLedgerNotFound);
 						}
-						return Ok(());
+						Ok(())
 					},
 				)?;
 			}
@@ -1044,7 +1043,7 @@ pub mod pallet {
 								entrance_account_balance,
 								time_unit,
 							)
-							.map_err(|e| e);
+							.ok();
 						}
 					}
 				},
@@ -1066,7 +1065,7 @@ pub mod pallet {
 							BoundedVec<UnlockId, T::MaximumUnlockIdOfTimeUnit>,
 							CurrencyIdOf<T>,
 						)> = TimeUnitUnlockLedger::<T>::iter_prefix_values(time_unit).collect();
-						if time_unit_ledger_list.len() == 0 {
+						if time_unit_ledger_list.is_empty() {
 							MinTimeUnit::<T>::mutate(ksm, |time_unit| -> Result<(), Error<T>> {
 								match time_unit {
 									TimeUnit::Era(era) => {
@@ -1147,11 +1146,6 @@ impl<T: Config> VtokenMintingOperator<CurrencyId, BalanceOf<T>, AccountIdOf<T>, 
 		{
 			ensure!(unlock_amount >= deduct_amount, Error::<T>::NotEnoughBalanceToUnlock);
 
-			TokenPool::<T>::mutate(&currency_id, |pool| -> Result<(), Error<T>> {
-				*pool = pool.checked_add(&deduct_amount).ok_or(Error::<T>::CalculationOverflow)?;
-				Ok(())
-			})?;
-
 			CurrencyUnlockingTotal::<T>::mutate(|pool| -> Result<(), Error<T>> {
 				*pool = pool.checked_sub(&deduct_amount).ok_or(Error::<T>::CalculationOverflow)?;
 				Ok(())
@@ -1173,9 +1167,9 @@ impl<T: Config> VtokenMintingOperator<CurrencyId, BalanceOf<T>, AccountIdOf<T>, 
 							ledger_list_origin.retain(|&x| x != index);
 						}
 					} else {
-						return Err(Error::<T>::TimeUnitUnlockLedgerNotFound.into());
+						return Err(Error::<T>::TimeUnitUnlockLedgerNotFound);
 					}
-					return Ok(());
+					Ok(())
 				},
 			)?;
 
@@ -1195,9 +1189,9 @@ impl<T: Config> VtokenMintingOperator<CurrencyId, BalanceOf<T>, AccountIdOf<T>, 
 							ledger_list_origin.retain(|&x| x != index);
 						}
 					} else {
-						return Err(Error::<T>::UserUnlockLedgerNotFound.into());
+						return Err(Error::<T>::UserUnlockLedgerNotFound);
 					}
-					return Ok(());
+					Ok(())
 				},
 			)?;
 
@@ -1217,9 +1211,9 @@ impl<T: Config> VtokenMintingOperator<CurrencyId, BalanceOf<T>, AccountIdOf<T>, 
 								.checked_sub(&deduct_amount)
 								.ok_or(Error::<T>::CalculationOverflow)?;
 						} else {
-							return Err(Error::<T>::TokenUnlockLedgerNotFound.into());
+							return Err(Error::<T>::TokenUnlockLedgerNotFound);
 						}
-						return Ok(());
+						Ok(())
 					},
 				)?;
 			}

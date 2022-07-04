@@ -111,7 +111,9 @@ impl orml_tokens::Config for Runtime {
 	type Event = Event;
 	type ExistentialDeposits = ExistentialDeposits;
 	type MaxLocks = MaxLocks;
+	type MaxReserves = ();
 	type OnDust = orml_tokens::TransferDust<Runtime, DustAccount>;
+	type ReserveIdentifier = [u8; 8];
 	type WeightInfo = ();
 }
 
@@ -193,7 +195,6 @@ impl ExtBuilder {
 		orml_tokens::GenesisConfig::<Runtime> {
 			balances: self
 				.endowed_accounts
-				.clone()
 				.into_iter()
 				.filter(|(_, currency_id, _)| *currency_id != BNC)
 				.collect::<Vec<_>>(),

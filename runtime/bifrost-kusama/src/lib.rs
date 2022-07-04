@@ -305,6 +305,8 @@ parameter_types! {
 	pub const SlpEntrancePalletId: PalletId = PalletId(*b"bf/vtkin");
 	pub const SlpExitPalletId: PalletId = PalletId(*b"bf/vtout");
 	pub const StableAmmPalletId: PalletId = PalletId(*b"bf/stamm");
+	pub const FarmingKeeperPalletId: PalletId = PalletId(*b"bf/fmkpr");
+	pub const FarmingRewardIssuerPalletId: PalletId = PalletId(*b"bf/fmrir");
 }
 
 impl frame_system::Config for Runtime {
@@ -988,6 +990,8 @@ impl parachain_staking::Config for Runtime {
 	type PalletId = ParachainStakingPalletId;
 	type InitSeedStk = InitSeedStk;
 	type WeightInfo = parachain_staking::weights::SubstrateWeight<Runtime>;
+	type EnsureConfirmAsGovernance =
+		EnsureOneOf<MoreThanHalfCouncil, EnsureRootOrAllTechnicalCommittee>;
 }
 
 parameter_types! {
@@ -1332,7 +1336,6 @@ impl pallet_vesting::Config for Runtime {
 // orml runtime start
 
 impl orml_currencies::Config for Runtime {
-	type Event = Event;
 	type GetNativeCurrencyId = NativeCurrencyId;
 	type MultiCurrency = Tokens;
 	type NativeCurrency = BasicCurrencyAdapter<Runtime, Balances, Amount, BlockNumber>;
@@ -1380,7 +1383,9 @@ impl Contains<AccountId> for DustRemovalWhitelist {
 			AccountIdConversion::<AccountId>::into_account(&ParachainStakingPalletId::get())
 				.eq(a) || AccountIdConversion::<AccountId>::into_account(&BifrostVsbondPalletId::get())
 			.eq(a) || AccountIdConversion::<AccountId>::into_account(&SlpEntrancePalletId::get()).eq(a) ||
-			AccountIdConversion::<AccountId>::into_account(&SlpExitPalletId::get()).eq(a)
+			AccountIdConversion::<AccountId>::into_account(&SlpExitPalletId::get()).eq(a) ||
+			FarmingKeeperPalletId::get().check_sub_account::<PoolId>(a) ||
+			FarmingRewardIssuerPalletId::get().check_sub_account::<PoolId>(a)
 	}
 }
 
@@ -1396,7 +1401,9 @@ impl orml_tokens::Config for Runtime {
 	type Event = Event;
 	type ExistentialDeposits = ExistentialDeposits;
 	type MaxLocks = MaxLocks;
+	type MaxReserves = MaxReserves;
 	type OnDust = orml_tokens::TransferDust<Runtime, BifrostTreasuryAccount>;
+	type ReserveIdentifier = [u8; 8];
 	type WeightInfo = ();
 }
 
@@ -1407,12 +1414,8 @@ parameter_types! {
 }
 
 parameter_type_with_key! {
-	pub ParachainMinFee: |location: MultiLocation| -> u128 {
-		#[allow(clippy::match_ref_pats)] // false positive
-		match (location.parents, location.first_interior()) {
-			// (1, Some(Parachain(parachains::Statemine::ID))) => XcmInterface::get_parachain_fee(location.clone()),
-			_ => u128::MAX,
-		}
+	pub ParachainMinFee: |_location: MultiLocation| -> u128 {
+		u128::MAX
 	};
 }
 
@@ -1676,8 +1679,6 @@ impl bifrost_asset_registry::Config for Runtime {
 	type RegisterOrigin = MoreThanHalfCouncil;
 }
 
-
-
 parameter_types! {
 	pub ParachainAccount: AccountId = ParachainInfo::get().into_account();
 	pub ContributionWeight:XcmBaseWeight = RelayXcmBaseWeight::get().into();
@@ -1754,6 +1755,15 @@ impl bifrost_vstoken_conversion::Config for Runtime {
 	type TreasuryAccount = BifrostTreasuryAccount;
 	type ControlOrigin = EnsureOneOf<MoreThanHalfCouncil, EnsureRootOrAllTechnicalCommittee>;
 	type VsbondAccount = BifrostVsbondPalletId;
+	type WeightInfo = ();
+}
+
+impl bifrost_farming::Config for Runtime {
+	type Event = Event;
+	type MultiCurrency = Currencies;
+	type ControlOrigin = EnsureOneOf<MoreThanHalfCouncil, EnsureRootOrAllTechnicalCommittee>;
+	type Keeper = FarmingKeeperPalletId;
+	type RewardIssuer = FarmingRewardIssuerPalletId;
 	type WeightInfo = ();
 }
 
@@ -1990,7 +2000,7 @@ construct_runtime! {
 		// Third party modules
 		XTokens: orml_xtokens::{Pallet, Call, Event<T>} = 70,
 		Tokens: orml_tokens::{Pallet, Call, Storage, Event<T>, Config<T>} = 71,
-		Currencies: orml_currencies::{Pallet, Call, Event<T>} = 72,
+		Currencies: orml_currencies::{Pallet, Call} = 72,
 		UnknownTokens: orml_unknown_tokens::{Pallet, Storage, Event} = 73,
 		OrmlXcm: orml_xcm::{Pallet, Call, Event<T>} = 74,
 		ZenlinkProtocol: zenlink_protocol::{Pallet, Call, Storage, Event<T>} = 80,

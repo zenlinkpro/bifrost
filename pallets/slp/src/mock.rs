@@ -66,7 +66,7 @@ construct_runtime!(
 	{
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
 		Balances: pallet_balances::{Pallet, Call, Storage, Config<T>, Event<T>},
-		Currencies: orml_currencies::{Pallet, Call, Event<T>},
+		Currencies: orml_currencies::{Pallet, Call},
 		Tokens: orml_tokens::{Pallet, Call, Storage, Event<T>},
 		Slp: bifrost_slp::{Pallet, Call, Storage, Event<T>},
 		VtokenMinting: bifrost_vtoken_minting::{Pallet, Call, Storage, Event<T>},
@@ -143,14 +143,15 @@ impl orml_tokens::Config for Runtime {
 	type Event = Event;
 	type ExistentialDeposits = ExistentialDeposits;
 	type MaxLocks = MaxLocks;
+	type MaxReserves = ();
 	type OnDust = ();
+	type ReserveIdentifier = [u8; 8];
 	type WeightInfo = ();
 }
 
 pub type BifrostToken = orml_currencies::BasicCurrencyAdapter<Runtime, Balances, Amount, u64>;
 
 impl orml_currencies::Config for Runtime {
-	type Event = Event;
 	type GetNativeCurrencyId = NativeCurrencyId;
 	type MultiCurrency = Tokens;
 	type NativeCurrency = BifrostToken;
@@ -225,13 +226,13 @@ parameter_types! {
 }
 
 impl QueryResponseManager<QueryId, MultiLocation, u64> for () {
-	fn get_query_response_record(query_id: QueryId) -> bool {
+	fn get_query_response_record(_query_id: QueryId) -> bool {
 		Default::default()
 	}
-	fn create_query_record(responder: &MultiLocation, timeout: u64) -> u64 {
+	fn create_query_record(_responder: &MultiLocation, _timeout: u64) -> u64 {
 		Default::default()
 	}
-	fn remove_query_record(query_id: QueryId) -> bool {
+	fn remove_query_record(_query_id: QueryId) -> bool {
 		Default::default()
 	}
 }
@@ -303,7 +304,6 @@ impl ExtBuilder {
 		orml_tokens::GenesisConfig::<Runtime> {
 			balances: self
 				.endowed_accounts
-				.clone()
 				.into_iter()
 				.filter(|(_, currency_id, _)| *currency_id != BNC)
 				.collect::<Vec<_>>(),

@@ -19,19 +19,28 @@ jobs:
     runs-on: [self-hosted, normal]
     steps:
       - name: Check to latest commit
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
-          submodules: recursive
+          fetch-depth: 1
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly-2022-04-07
-          components: rustfmt
+          toolchain: nightly-2022-05-11
+          components: rustfmt,clippy
           target: wasm32-unknown-unknown
+          override: true
           default: true
+
       - name: Check All
         run: make check-all
+
+      - name: Cargo clippy
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --features=with-bifrost-kusama-runtime -- -D warnings
+
       - name: Test All
         run: |
           make test-all
@@ -43,3 +52,6 @@ jobs:
           fields: repo,author,eventName,workflow,ref,commit
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_PULLREQUEST_WEBHOOK_URL }}
+      - name: clean runner workspace
+        run: |
+          rm -r *

@@ -33,24 +33,24 @@
 
 use std::sync::Arc;
 
-use bifrost_flexible_fee_rpc::{FeeRpcApi, FlexibleFeeStruct};
+use bifrost_farming_rpc_api::{FarmingRpc, FarmingRpcApiServer};
+use bifrost_farming_rpc_runtime_api::FarmingRuntimeApi;
+use bifrost_flexible_fee_rpc::{FeeRpcApiServer, FlexibleFeeRpc};
 use bifrost_flexible_fee_rpc_runtime_api::FlexibleFeeRuntimeApi as FeeRuntimeApi;
-use bifrost_liquidity_mining_rpc_api::{LiquidityMiningRpcApi, LiquidityMiningRpcWrapper};
+use bifrost_liquidity_mining_rpc_api::{LiquidityMiningRpc, LiquidityMiningRpcApiServer};
 use bifrost_liquidity_mining_rpc_runtime_api::LiquidityMiningRuntimeApi;
-use bifrost_salp_rpc_api::{SalpRpcApi, SalpRpcWrapper};
+use bifrost_salp_rpc_api::{SalpRpc, SalpRpcApiServer};
 use bifrost_salp_rpc_runtime_api::SalpRuntimeApi;
-use node_primitives::{AccountId, Balance, Block, CurrencyId, Nonce, ParaId, PoolId};
-use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApi};
+use node_primitives::{AccountId, Balance, Block, Nonce, ParaId, PoolId};
+use pallet_transaction_payment_rpc::{TransactionPaymentApiServer, TransactionPaymentRpc};
 use sc_rpc_api::DenyUnsafe;
 use sc_transaction_pool_api::TransactionPool;
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
-use substrate_frame_rpc_system::{FullSystem, SystemApi};
-use zenlink_protocol_rpc::{ZenlinkProtocol, ZenlinkProtocolApi};
+use substrate_frame_rpc_system::{SystemApiServer, SystemRpc};
+use zenlink_protocol_rpc::{ZenlinkProtocol, ZenlinkProtocolApiServer};
 use zenlink_protocol_runtime_api::ZenlinkProtocolApi as ZenlinkProtocolRuntimeApi;
-use stable_amm_rpc::{StableAmm, StableAmmApi};
-// use stable_amm_runtime_api::StableAmmApi as StableAmmRuntimeApi;
 
 /// Full client dependencies.
 pub struct FullDeps<C, P> {
@@ -63,10 +63,12 @@ pub struct FullDeps<C, P> {
 }
 
 /// A IO handler that uses all Full RPC extensions.
-pub type RpcExtension = jsonrpc_core::IoHandler<sc_rpc::Metadata>;
+pub type RpcExtension = jsonrpsee::RpcModule<()>;
 
 /// RPC of bifrost-kusama runtime.
-pub fn create_full_rpc<C, P>(deps: FullDeps<C, P>) -> RpcExtension
+pub fn create_full<C, P>(
+	deps: FullDeps<C, P>,
+) -> Result<RpcExtension, Box<dyn std::error::Error + Send + Sync>>
 where
 	C: ProvideRuntimeApi<Block>
 		+ HeaderBackend<Block>
@@ -76,38 +78,34 @@ where
 		+ 'static,
 	C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
 	C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
+	C::Api: FarmingRuntimeApi<Block, AccountId, PoolId>,
 	C::Api: FeeRuntimeApi<Block, AccountId>,
 	C::Api: SalpRuntimeApi<Block, ParaId, AccountId>,
 	C::Api: LiquidityMiningRuntimeApi<Block, AccountId, PoolId>,
 	C::Api: ZenlinkProtocolRuntimeApi<Block, AccountId>,
-	C::Api: stable_amm_runtime_api::StableAmmApi<Block, CurrencyId, Balance, AccountId, PoolId>,
 	C::Api: BlockBuilder<Block>,
 	P: TransactionPool + Sync + Send + 'static,
 {
-	let mut io = jsonrpc_core::IoHandler::default();
+	let mut module = RpcExtension::new(());
 	let FullDeps { client, pool, deny_unsafe } = deps;
 
-	io.extend_with(SystemApi::to_delegate(FullSystem::new(client.clone(), pool, deny_unsafe)));
-	io.extend_with(TransactionPaymentApi::to_delegate(TransactionPayment::new(client.clone())));
+	module.merge(SystemRpc::new(client.clone(), pool.clone(), deny_unsafe).into_rpc())?;
+	module.merge(TransactionPaymentRpc::new(client.clone()).into_rpc())?;
 
-	io.extend_with(FeeRpcApi::to_delegate(FlexibleFeeStruct::new(client.clone())));
+	module.merge(FarmingRpc::new(client.clone()).into_rpc())?;
+	module.merge(FlexibleFeeRpc::new(client.clone()).into_rpc())?;
+	module.merge(SalpRpc::new(client.clone()).into_rpc())?;
+	module.merge(LiquidityMiningRpc::new(client.clone()).into_rpc())?;
+	module.merge(ZenlinkProtocol::new(client).into_rpc())?;
 
-	io.extend_with(SalpRpcApi::to_delegate(SalpRpcWrapper::new(client.clone())));
-
-	io.extend_with(LiquidityMiningRpcApi::to_delegate(LiquidityMiningRpcWrapper::new(
-		client.clone(),
-	)));
-
-	io.extend_with(ZenlinkProtocolApi::to_delegate(ZenlinkProtocol::new(client.clone())));
-
-	io.extend_with(StableAmmApi::to_delegate(StableAmm::new(client.clone())));
-
-	io
+	Ok(module)
 }
 
 /// RPC of bifrost-polkadot runtime.
 #[allow(non_snake_case)]
-pub fn create_full_polkadot_rpc<C, P>(deps: FullDeps<C, P>) -> RpcExtension
+pub fn create_full_polkadot<C, P>(
+	deps: FullDeps<C, P>,
+) -> Result<RpcExtension, Box<dyn std::error::Error + Send + Sync>>
 where
 	C: ProvideRuntimeApi<Block>
 		+ HeaderBackend<Block>
@@ -120,11 +118,11 @@ where
 	C::Api: BlockBuilder<Block>,
 	P: TransactionPool + Sync + Send + 'static,
 {
-	let mut io = jsonrpc_core::IoHandler::default();
+	let mut module = RpcExtension::new(());
 	let FullDeps { client, pool, deny_unsafe } = deps;
 
-	io.extend_with(SystemApi::to_delegate(FullSystem::new(client.clone(), pool, deny_unsafe)));
-	io.extend_with(TransactionPaymentApi::to_delegate(TransactionPayment::new(client.clone())));
+	module.merge(SystemRpc::new(client.clone(), pool.clone(), deny_unsafe).into_rpc())?;
+	module.merge(TransactionPaymentRpc::new(client.clone()).into_rpc())?;
 
-	io
+	Ok(module)
 }
