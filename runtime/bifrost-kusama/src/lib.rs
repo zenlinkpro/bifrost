@@ -1358,6 +1358,7 @@ parameter_type_with_key! {
 			&CurrencyId::VSBond(TokenSymbol::KSM, ..) => 10 * millicent(RelayCurrencyId::get()),
 			&CurrencyId::VSBond(TokenSymbol::DOT, ..) => 1 * cent(PolkadotCurrencyId::get()),
 			&CurrencyId::LPToken(..) => 10 * millicent(NativeCurrencyId::get()),
+			&CurrencyId::StableLpToken(..) => 10 * millicent(NativeCurrencyId::get()),
 			&CurrencyId::VToken(TokenSymbol::KSM) => 10 * millicent(RelayCurrencyId::get()),  // 0.0001 vKSM
 			&CurrencyId::Token(TokenSymbol::RMRK) => 1 * micro(CurrencyId::Token(TokenSymbol::RMRK)),
 			&CurrencyId::Token(TokenSymbol::MOVR) => 1 * micro(CurrencyId::Token(TokenSymbol::MOVR)),	// MOVR has a decimals of 10e18
@@ -2023,6 +2024,7 @@ construct_runtime! {
 		Slp: bifrost_slp::{Pallet, Call, Storage, Event<T>} = 116,
 		XcmInterface: xcm_interface::{Pallet, Call, Storage, Event<T>} = 117,
 		VstokenConversion: bifrost_vstoken_conversion::{Pallet, Call, Storage, Event<T>} = 118,
+		Farming: bifrost_farming::{Pallet, Call, Storage, Event<T>} = 119,
 	}
 }
 
@@ -2345,6 +2347,16 @@ impl_runtime_apis! {
 				2 => LiquidityMiningDOT::rewards(who, pid).unwrap_or(Vec::new()),
 				_ => Vec::new()
 			}
+		}
+	}
+
+	impl bifrost_farming_rpc_runtime_api::FarmingRuntimeApi<Block, AccountId, PoolId> for Runtime {
+		fn get_farming_rewards(who: AccountId, pid: PoolId) -> Vec<(CurrencyId, Balance)> {
+			Farming::get_farming_rewards(&who, pid).unwrap_or(Vec::new())
+		}
+
+		fn get_gauge_rewards(who: AccountId, pid: PoolId) -> Vec<(CurrencyId, Balance)> {
+			Farming::get_gauge_rewards(&who, pid).unwrap_or(Vec::new())
 		}
 	}
 
