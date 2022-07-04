@@ -118,6 +118,8 @@ use zenlink_protocol::{
 	make_x2_location, AssetBalance, AssetId as ZenlinkAssetId, LocalAssetHandler,
 	MultiAssetsHandler, PairInfo, ZenlinkMultiAssets,
 };
+
+use stable_amm::traits::ValidateCurrency;
 // Weights used in the runtime.
 mod weights;
 
@@ -140,7 +142,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("bifrost"),
 	impl_name: create_runtime_str!("bifrost"),
 	authoring_version: 1,
-	spec_version: 944,
+	spec_version: 940,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -302,6 +304,7 @@ parameter_types! {
 	pub const BifrostVsbondPalletId: PalletId = PalletId(*b"bf/salpb");
 	pub const SlpEntrancePalletId: PalletId = PalletId(*b"bf/vtkin");
 	pub const SlpExitPalletId: PalletId = PalletId(*b"bf/vtout");
+	pub const StableAmmPalletId: PalletId = PalletId(*b"bf/stamm");
 	pub const FarmingKeeperPalletId: PalletId = PalletId(*b"bf/fmkpr");
 	pub const FarmingRewardIssuerPalletId: PalletId = PalletId(*b"bf/fmrir");
 }
@@ -1355,6 +1358,7 @@ parameter_type_with_key! {
 			&CurrencyId::VSBond(TokenSymbol::KSM, ..) => 10 * millicent(RelayCurrencyId::get()),
 			&CurrencyId::VSBond(TokenSymbol::DOT, ..) => 1 * cent(PolkadotCurrencyId::get()),
 			&CurrencyId::LPToken(..) => 10 * millicent(NativeCurrencyId::get()),
+			&CurrencyId::StableLpToken(..) => 10 * millicent(NativeCurrencyId::get()),
 			&CurrencyId::VToken(TokenSymbol::KSM) => 10 * millicent(RelayCurrencyId::get()),  // 0.0001 vKSM
 			&CurrencyId::Token(TokenSymbol::RMRK) => 1 * micro(CurrencyId::Token(TokenSymbol::RMRK)),
 			&CurrencyId::Token(TokenSymbol::MOVR) => 1 * micro(CurrencyId::Token(TokenSymbol::MOVR)),	// MOVR has a decimals of 10e18
@@ -1783,6 +1787,41 @@ impl merkle_distributor::Config for Runtime {
 	type WeightInfo = ();
 }
 
+impl stable_amm::Config for Runtime {
+	type Event = Event;
+	type CurrencyId = CurrencyId;
+	type MultiCurrency = Currencies;
+	type PoolId = u32;
+	type TimeProvider = Timestamp;
+	type EnsurePoolAsset = StableAmmVerifyPoolAsset;
+	type PoolCurrencySymbolLimit = StringLimit;
+	type PalletId = StableAmmPalletId;
+}
+
+impl swap_router::Config for Runtime {
+	type Event = Event;
+	type StablePoolId = u32;
+	type Balance = u128;
+	type CurrencyId = CurrencyId;
+	type NormalAmm = ZenlinkProtocol;
+	type StableAMM = StableAMM;
+}
+
+pub struct StableAmmVerifyPoolAsset;
+
+impl ValidateCurrency<CurrencyId> for StableAmmVerifyPoolAsset{
+	fn validate_pooled_currency(_currencies: &[CurrencyId]) -> bool {
+		true
+	}
+
+	fn validate_pool_lp_currency(_currency_id: CurrencyId) -> bool {
+		if Currencies::total_issuance(_currency_id) > 0{
+			return false
+		}
+		true
+	}
+}
+
 parameter_types! {
 	pub const ZenlinkPalletId: PalletId = PalletId(*b"/zenlink");
 	pub const GetExchangeFee: (u32, u32) = (3, 1000);   // 0.3%
@@ -1967,6 +2006,8 @@ construct_runtime! {
 		OrmlXcm: orml_xcm::{Pallet, Call, Event<T>} = 74,
 		ZenlinkProtocol: zenlink_protocol::{Pallet, Call, Storage, Event<T>} = 80,
 		MerkleDistributor: merkle_distributor::{Pallet, Call, Storage, Event<T>} = 81,
+		StableAMM: stable_amm::{Pallet, Call, Storage, Event<T>} = 82,
+		SwapRouter: swap_router::{Pallet, Call, Event<T>} = 83,
 
 		// Bifrost modules
 		FlexibleFee: bifrost_flexible_fee::{Pallet, Call, Storage, Event<T>} = 100,
@@ -2031,25 +2072,6 @@ pub type Executive = frame_executive::Executive<
 	AllPalletsWithSystem,
 	(),
 >;
-
-#[cfg(feature = "runtime-benchmarks")]
-#[macro_use]
-extern crate frame_benchmarking;
-
-#[cfg(feature = "runtime-benchmarks")]
-mod benches {
-	define_benchmarks!(
-		[bifrost_flexible_fee, FlexibleFee]
-		[bifrost_salp, Salp]
-		[bifrost_salp_lite, SalpLite]
-		[bifrost_liquidity_mining, LiquidityMining]
-		[bifrost_vsbond_auction, VSBondAuction]
-		[bifrost_token_issuer, TokenIssuer]
-		[bifrost_lightening_redeem, LighteningRedeem]
-		[bifrost_call_switchgear, CallSwitchgear]
-		[parachain_staking, ParachainStaking]
-	);
-}
 
 impl_runtime_apis! {
 	impl sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block> for Runtime {
@@ -2226,6 +2248,80 @@ impl_runtime_apis! {
 		}
 	}
 
+	impl stable_amm_runtime_api::StableAmmApi<Block, CurrencyId, u128, AccountId, u32> for Runtime{
+		fn get_virtual_price(pool_id: PoolId)->Balance{
+			StableAMM::calculate_virtual_price(pool_id).unwrap_or_default()
+		}
+
+		fn get_a(pool_id: PoolId)->Balance{
+			StableAMM::get_a(pool_id)
+		}
+
+		fn get_a_precise(pool_id: PoolId)->Balance{
+			if let Some(pool) = StableAMM::pools(pool_id){
+				StableAMM::get_a_precise(&pool).unwrap_or_default()
+			}else{
+				Balance::default()
+			}
+		}
+
+		fn get_currencies(pool_id: PoolId)->Vec<CurrencyId>{
+			StableAMM::get_currencies(pool_id)
+		}
+
+		fn get_currency(pool_id: PoolId, index: u32)->Option<CurrencyId>{
+			StableAMM::get_currency(pool_id, index)
+		}
+
+		fn get_lp_currency(pool_id: PoolId)->Option<CurrencyId>{
+			StableAMM::get_lp_currency(pool_id)
+		}
+
+		fn get_currency_precision_multipliers(pool_id: PoolId)->Vec<Balance>{
+			StableAMM::get_currency_precision_multipliers(pool_id)
+		}
+
+		fn get_currency_balances(pool_id: PoolId)->Vec<Balance>{
+			StableAMM::get_currency_balances(pool_id)
+		}
+
+		fn get_number_of_currencies(pool_id: PoolId)->u32{
+			StableAMM::get_number_of_currencies(pool_id)
+		}
+
+		fn get_admin_balances(pool_id: PoolId)->Vec<Balance>{
+			StableAMM::get_admin_balances(pool_id)
+		}
+
+		fn calculate_currency_amount(pool_id: PoolId, amounts:Vec<Balance>, deposit: bool)->Balance{
+			StableAMM::calculate_currency_amount(pool_id, amounts, deposit).unwrap_or_default()
+		}
+
+		fn calculate_swap(pool_id: PoolId, in_index: u32, out_index: u32, in_amount: Balance)->Balance{
+			if let Some(pool) = StableAMM::pools(pool_id){
+				StableAMM::calculate_swap_amount(&pool, in_index as usize, out_index as usize, in_amount).unwrap_or_default()
+			}else{
+				Balance::default()
+			}
+		}
+
+		fn calculate_remove_liquidity(pool_id: PoolId, amount: Balance)->Vec<Balance>{
+			if let Some(pool) = StableAMM::pools(pool_id){
+			StableAMM::calculate_removed_liquidity(&pool, amount).unwrap_or_default()
+			}else{
+				Vec::new()
+			}
+		}
+
+		fn calculate_remove_liquidity_one_currency(pool_id: PoolId, amount:Balance, index: u32)->Balance{
+			if let Some(pool) = StableAMM::pools(pool_id){
+				StableAMM::calculate_remove_liquidity_one_token(&pool, amount, index).unwrap_or_default().0
+			}else{
+				Balance::default()
+			}
+		}
+	}
+
 	impl bifrost_salp_rpc_runtime_api::SalpRuntimeApi<Block, ParaId, AccountId> for Runtime {
 		fn get_contribution(index: ParaId, who: AccountId) -> (Balance,RpcContributionStatus) {
 			let rs = Salp::contribution_by_fund(index, &who);
@@ -2270,20 +2366,30 @@ impl_runtime_apis! {
 			Vec<frame_benchmarking::BenchmarkList>,
 			Vec<frame_support::traits::StorageInfo>,
 		) {
-			use frame_benchmarking::{Benchmarking, BenchmarkList};
 			use frame_support::traits::StorageInfoTrait;
+			use frame_benchmarking::{list_benchmark, Benchmarking, BenchmarkList};
 
 			let mut list = Vec::<BenchmarkList>::new();
-			list_benchmarks!(list, extra);
+
+			list_benchmark!(list, extra, bifrost_flexible_fee, FlexibleFee);
+			list_benchmark!(list, extra, bifrost_salp, Salp);
+			list_benchmark!(list, extra, bifrost_salp_lite, SalpLite);
+			list_benchmark!(list, extra, bifrost_liquidity_mining::<Instance1>, LiquidityMining);
+			list_benchmark!(list, extra, bifrost_vsbond_auction, VSBondAuction);
+			list_benchmark!(list, extra, bifrost_token_issuer, TokenIssuer);
+			list_benchmark!(list, extra, bifrost_lightening_redeem, LighteningRedeem);
+			list_benchmark!(list, extra, bifrost_call_switchgear, CallSwitchgear);
+			list_benchmark!(list, extra, parachain_staking, ParachainStaking);
 
 			let storage_info = AllPalletsWithSystem::storage_info();
+
 			return (list, storage_info)
 		}
-
 		fn dispatch_benchmark(
 			config: frame_benchmarking::BenchmarkConfig
 		) -> Result<Vec<frame_benchmarking::BenchmarkBatch>, sp_runtime::RuntimeString> {
-			use frame_benchmarking::{Benchmarking, BenchmarkBatch, TrackedStorageKey};
+			use frame_benchmarking::{Benchmarking, BenchmarkBatch, add_benchmark, TrackedStorageKey};
+			use frame_system_benchmarking::Pallet as SystemBench;
 
 			impl frame_system_benchmarking::Config for Runtime {}
 
@@ -2302,7 +2408,27 @@ impl_runtime_apis! {
 
 			let mut batches = Vec::<BenchmarkBatch>::new();
 			let params = (&config, &whitelist);
-			add_benchmarks!(params, batches);
+
+			// Adding the pallet you will perform the benchmarking
+			add_benchmark!(params, batches, frame_system, SystemBench::<Runtime>);
+			add_benchmark!(params, batches, pallet_balances, Balances);
+			add_benchmark!(params, batches, pallet_bounties, Bounties);
+			add_benchmark!(params, batches, pallet_indices, Indices);
+			add_benchmark!(params, batches, pallet_scheduler, Scheduler);
+			add_benchmark!(params, batches, pallet_timestamp, Timestamp);
+			add_benchmark!(params, batches, pallet_treasury, Treasury);
+			add_benchmark!(params, batches, pallet_utility, Utility);
+			add_benchmark!(params, batches, pallet_vesting, Vesting);
+
+			add_benchmark!(params, batches, bifrost_flexible_fee, FlexibleFee);
+			add_benchmark!(params, batches, bifrost_salp, Salp);
+			add_benchmark!(params, batches, bifrost_salp_lite, SalpLite);
+			add_benchmark!(params, batches, bifrost_liquidity_mining, LiquidityMining);
+			add_benchmark!(params, batches, bifrost_vsbond_auction, VSBondAuction);
+			add_benchmark!(params, batches, bifrost_token_issuer, TokenIssuer);
+			add_benchmark!(params, batches, bifrost_lightening_redeem, LighteningRedeem);
+			add_benchmark!(params, batches, bifrost_call_switchgear, CallSwitchgear);
+			add_benchmark!(params, batches, parachain_staking, ParachainStaking);
 
 			if batches.is_empty() { return Err("Benchmark not found for this pallet.".into()) }
 			Ok(batches)

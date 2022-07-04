@@ -36,7 +36,7 @@ use cumulus_relay_chain_inprocess_interface::build_inprocess_relay_chain;
 use cumulus_relay_chain_interface::{RelayChainError, RelayChainInterface, RelayChainResult};
 use cumulus_relay_chain_rpc_interface::RelayChainRPCInterface;
 use node_primitives::{
-	AccountId, Balance, Block, BlockNumber, Hash, Header, Nonce, ParaId as BifrostParaId, PoolId,
+	AccountId, Balance, Block, BlockNumber, Hash, Header, Nonce, ParaId as BifrostParaId, PoolId,CurrencyId
 };
 use polkadot_service::CollatorPair;
 use sc_client_api::{AuxStore, Backend as BackendT, BlockchainEvents, KeyIterator, UsageProvider};
@@ -535,6 +535,7 @@ pub trait RuntimeApiCollection:
 	+ bifrost_liquidity_mining_rpc_runtime_api::LiquidityMiningRuntimeApi<Block, AccountId, PoolId>
 	+ bifrost_salp_rpc_runtime_api::SalpRuntimeApi<Block, BifrostParaId, AccountId>
 	+ zenlink_protocol_runtime_api::ZenlinkProtocolApi<Block, AccountId>
+	+ stable_amm_runtime_api::StableAmmApi<Block, CurrencyId, Balance, AccountId, PoolId>
 where
 	<Self as sp_api::ApiExt<Block>>::StateBackend: sp_api::StateBackend<BlakeTwo256>,
 {
@@ -559,7 +560,8 @@ where
 			AccountId,
 			PoolId,
 		> + bifrost_salp_rpc_runtime_api::SalpRuntimeApi<Block, BifrostParaId, AccountId>
-		+ zenlink_protocol_runtime_api::ZenlinkProtocolApi<Block, AccountId>,
+		+ zenlink_protocol_runtime_api::ZenlinkProtocolApi<Block, AccountId>
+		+ stable_amm_runtime_api::StableAmmApi<Block, CurrencyId, Balance, AccountId, PoolId>,
 	<Self as sp_api::ApiExt<Block>>::StateBackend: sp_api::StateBackend<BlakeTwo256>,
 {
 }
