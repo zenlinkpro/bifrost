@@ -119,7 +119,7 @@ use zenlink_protocol::{
 	MultiAssetsHandler, PairInfo, ZenlinkMultiAssets,
 };
 
-use stable_amm::traits::ValidateCurrency;
+use stable_amm::traits::{StablePoolLpCurrencyIdGenerate, ValidateCurrency};
 // Weights used in the runtime.
 mod weights;
 
@@ -142,7 +142,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("bifrost"),
 	impl_name: create_runtime_str!("bifrost"),
 	authoring_version: 1,
-	spec_version: 940,
+	spec_version: 941,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -1794,6 +1794,7 @@ impl stable_amm::Config for Runtime {
 	type PoolId = u32;
 	type TimeProvider = Timestamp;
 	type EnsurePoolAsset = StableAmmVerifyPoolAsset;
+	type LpGenerate = PoolLpGenerate;
 	type PoolCurrencySymbolLimit = StringLimit;
 	type PalletId = StableAmmPalletId;
 }
@@ -1819,6 +1820,14 @@ impl ValidateCurrency<CurrencyId> for StableAmmVerifyPoolAsset{
 			return false
 		}
 		true
+	}
+}
+
+pub struct PoolLpGenerate;
+
+impl StablePoolLpCurrencyIdGenerate<CurrencyId, PoolId> for PoolLpGenerate {
+	fn generate_by_pool_id(pool_id: PoolId) -> CurrencyId {
+		CurrencyId::StableLpToken(pool_id)
 	}
 }
 
