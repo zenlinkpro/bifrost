@@ -11532,7 +11532,7 @@ dependencies = [
 [[package]]
 name = "stable-amm"
 version = "0.1.0"
-source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12af9cf08f49520f7a4e181e3a7292c741cf3c07#12af9cf08f49520f7a4e181e3a7292c741cf3c07"
+source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12a4ec3004005d9e2e9b8484dc2b7326ccc411cf#12a4ec3004005d9e2e9b8484dc2b7326ccc411cf"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -11549,7 +11549,7 @@ dependencies = [
 [[package]]
 name = "stable-amm-rpc"
 version = "0.1.0"
-source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12af9cf08f49520f7a4e181e3a7292c741cf3c07#12af9cf08f49520f7a4e181e3a7292c741cf3c07"
+source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12a4ec3004005d9e2e9b8484dc2b7326ccc411cf#12a4ec3004005d9e2e9b8484dc2b7326ccc411cf"
 dependencies = [
  "jsonrpsee",
  "parity-scale-codec",
@@ -11563,7 +11563,7 @@ dependencies = [
 [[package]]
 name = "stable-amm-runtime-api"
 version = "0.1.0"
-source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12af9cf08f49520f7a4e181e3a7292c741cf3c07#12af9cf08f49520f7a4e181e3a7292c741cf3c07"
+source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12a4ec3004005d9e2e9b8484dc2b7326ccc411cf#12a4ec3004005d9e2e9b8484dc2b7326ccc411cf"
 dependencies = [
  "parity-scale-codec",
  "sp-api",
@@ -11782,7 +11782,7 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 [[package]]
 name = "swap-router"
 version = "0.1.0"
-source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12af9cf08f49520f7a4e181e3a7292c741cf3c07#12af9cf08f49520f7a4e181e3a7292c741cf3c07"
+source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12a4ec3004005d9e2e9b8484dc2b7326ccc411cf#12a4ec3004005d9e2e9b8484dc2b7326ccc411cf"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -13313,7 +13313,7 @@ dependencies = [
 [[package]]
 name = "zenlink-protocol"
 version = "0.4.4"
-source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12af9cf08f49520f7a4e181e3a7292c741cf3c07#12af9cf08f49520f7a4e181e3a7292c741cf3c07"
+source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12a4ec3004005d9e2e9b8484dc2b7326ccc411cf#12a4ec3004005d9e2e9b8484dc2b7326ccc411cf"
 dependencies = [
  "cumulus-primitives-core",
  "frame-support",
@@ -13336,7 +13336,7 @@ dependencies = [
 [[package]]
 name = "zenlink-protocol-rpc"
 version = "0.4.4"
-source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12af9cf08f49520f7a4e181e3a7292c741cf3c07#12af9cf08f49520f7a4e181e3a7292c741cf3c07"
+source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12a4ec3004005d9e2e9b8484dc2b7326ccc411cf#12a4ec3004005d9e2e9b8484dc2b7326ccc411cf"
 dependencies = [
  "jsonrpsee",
  "parity-scale-codec",
@@ -13351,7 +13351,7 @@ dependencies = [
 [[package]]
 name = "zenlink-protocol-runtime-api"
 version = "0.4.4"
-source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12af9cf08f49520f7a4e181e3a7292c741cf3c07#12af9cf08f49520f7a4e181e3a7292c741cf3c07"
+source = "git+https://github.com/zenlinkpro/Zenlink-DEX-Module?rev=12a4ec3004005d9e2e9b8484dc2b7326ccc411cf#12a4ec3004005d9e2e9b8484dc2b7326ccc411cf"
 dependencies = [
  "parity-scale-codec",
  "sp-api",
