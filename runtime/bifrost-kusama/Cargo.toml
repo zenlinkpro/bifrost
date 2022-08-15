@@ -121,9 +121,9 @@ zenlink-protocol-runtime-api = { version = "*", default-features = false }
 parachain-staking = { version = "*", default-features = false }
 xcm-interface = { path = "../../pallets/xcm-interface", default-features = false }
 
-stable-amm = { version = "*", default-features = false }
-stable-amm-runtime-api = { version = "*", default-features = false }
-swap-router = { version = "*", default-features = false }
+zenlink-stable-amm = { version = "*", default-features = false }
+zenlink-stable-amm-runtime-api = { version = "*", default-features = false }
+zenlink-swap-router = { version = "*", default-features = false }
 
 [build-dependencies]
 substrate-wasm-builder = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.22" }
@@ -209,9 +209,9 @@ std = [
 	"bifrost-asset-registry/std",
 	"zenlink-protocol/std",
 	"zenlink-protocol-runtime-api/std",
-	"stable-amm/std",
-	"stable-amm-runtime-api/std",
-	"swap-router/std",
+	"zenlink-stable-amm/std",
+	"zenlink-stable-amm-runtime-api/std",
+	"zenlink-swap-router/std",
 	"merkle-distributor/std",
 	"parachain-staking/std",
 	"xcm-interface/std",

@@ -119,7 +119,7 @@ use zenlink_protocol::{
 	MultiAssetsHandler, PairInfo, ZenlinkMultiAssets,
 };
 
-use stable_amm::traits::{StablePoolLpCurrencyIdGenerate, ValidateCurrency};
+use zenlink_stable_amm::traits::{StablePoolLpCurrencyIdGenerate, StableAmmApi, ValidateCurrency};
 // Weights used in the runtime.
 mod weights;
 
@@ -1787,7 +1787,7 @@ impl merkle_distributor::Config for Runtime {
 	type WeightInfo = ();
 }
 
-impl stable_amm::Config for Runtime {
+impl zenlink_stable_amm::Config for Runtime {
 	type Event = Event;
 	type CurrencyId = CurrencyId;
 	type MultiCurrency = Currencies;
@@ -1799,7 +1799,7 @@ impl stable_amm::Config for Runtime {
 	type PalletId = StableAmmPalletId;
 }
 
-impl swap_router::Config for Runtime {
+impl zenlink_swap_router::Config for Runtime {
 	type Event = Event;
 	type StablePoolId = u32;
 	type Balance = u128;
@@ -2015,8 +2015,8 @@ construct_runtime! {
 		OrmlXcm: orml_xcm::{Pallet, Call, Event<T>} = 74,
 		ZenlinkProtocol: zenlink_protocol::{Pallet, Call, Storage, Event<T>} = 80,
 		MerkleDistributor: merkle_distributor::{Pallet, Call, Storage, Event<T>} = 81,
-		StableAMM: stable_amm::{Pallet, Call, Storage, Event<T>} = 82,
-		SwapRouter: swap_router::{Pallet, Call, Event<T>} = 83,
+		StableAMM: zenlink_stable_amm::{Pallet, Call, Storage, Event<T>} = 82,
+		SwapRouter: zenlink_swap_router::{Pallet, Call, Event<T>} = 83,
 
 		// Bifrost modules
 		FlexibleFee: bifrost_flexible_fee::{Pallet, Call, Storage, Event<T>} = 100,
@@ -2257,9 +2257,9 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl stable_amm_runtime_api::StableAmmApi<Block, CurrencyId, u128, AccountId, u32> for Runtime{
+	impl zenlink_stable_amm_runtime_api::StableAmmApi<Block, CurrencyId, u128, AccountId, u32> for Runtime{
 		fn get_virtual_price(pool_id: PoolId)->Balance{
-			StableAMM::calculate_virtual_price(pool_id).unwrap_or_default()
+			StableAMM::get_virtual_price(pool_id)
 		}
 
 		fn get_a(pool_id: PoolId)->Balance{
@@ -2267,11 +2267,7 @@ impl_runtime_apis! {
 		}
 
 		fn get_a_precise(pool_id: PoolId)->Balance{
-			if let Some(pool) = StableAMM::pools(pool_id){
-				StableAMM::get_a_precise(&pool).unwrap_or_default()
-			}else{
-				Balance::default()
-			}
+			StableAMM::get_a(pool_id) * 100
 		}
 
 		fn get_currencies(pool_id: PoolId)->Vec<CurrencyId>{
@@ -2303,31 +2299,19 @@ impl_runtime_apis! {
 		}
 
 		fn calculate_currency_amount(pool_id: PoolId, amounts:Vec<Balance>, deposit: bool)->Balance{
-			StableAMM::calculate_currency_amount(pool_id, amounts, deposit).unwrap_or_default()
+			StableAMM::stable_amm_calculate_currency_amount(pool_id, &amounts, deposit).unwrap_or_default()
 		}
 
 		fn calculate_swap(pool_id: PoolId, in_index: u32, out_index: u32, in_amount: Balance)->Balance{
-			if let Some(pool) = StableAMM::pools(pool_id){
-				StableAMM::calculate_swap_amount(&pool, in_index as usize, out_index as usize, in_amount).unwrap_or_default()
-			}else{
-				Balance::default()
-			}
+			StableAMM::stable_amm_calculate_swap_amount(pool_id, in_index as usize, out_index as usize, in_amount).unwrap_or_default()
 		}
 
 		fn calculate_remove_liquidity(pool_id: PoolId, amount: Balance)->Vec<Balance>{
-			if let Some(pool) = StableAMM::pools(pool_id){
-			StableAMM::calculate_removed_liquidity(&pool, amount).unwrap_or_default()
-			}else{
-				Vec::new()
-			}
+			StableAMM::stable_amm_calculate_removed_liquidity(pool_id, amount).unwrap_or_default()
 		}
 
 		fn calculate_remove_liquidity_one_currency(pool_id: PoolId, amount:Balance, index: u32)->Balance{
-			if let Some(pool) = StableAMM::pools(pool_id){
-				StableAMM::calculate_remove_liquidity_one_token(&pool, amount, index).unwrap_or_default().0
-			}else{
-				Balance::default()
-			}
+			StableAMM::stable_amm_calculate_remove_liquidity_one_currency(pool_id, amount, index).unwrap_or_default()
 		}
 	}
 

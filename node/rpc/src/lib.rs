@@ -51,7 +51,7 @@ use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
 use substrate_frame_rpc_system::{SystemApiServer, SystemRpc};
 use zenlink_protocol_rpc::{ZenlinkProtocol, ZenlinkProtocolApiServer};
 use zenlink_protocol_runtime_api::ZenlinkProtocolApi as ZenlinkProtocolRuntimeApi;
-use stable_amm_rpc::{StableAmm, StableAmmApiServer};
+use zenlink_stable_amm_rpc::{StableAmm, StableAmmApiServer};
 
 /// Full client dependencies.
 pub struct FullDeps<C, P> {
@@ -84,7 +84,7 @@ where
 	C::Api: SalpRuntimeApi<Block, ParaId, AccountId>,
 	C::Api: LiquidityMiningRuntimeApi<Block, AccountId, PoolId>,
 	C::Api: ZenlinkProtocolRuntimeApi<Block, AccountId>,
-	C::Api: stable_amm_runtime_api::StableAmmApi<Block, CurrencyId, Balance, AccountId, PoolId>,
+	C::Api: zenlink_stable_amm_runtime_api::StableAmmApi<Block, CurrencyId, Balance, AccountId, PoolId>,
 	C::Api: BlockBuilder<Block>,
 	P: TransactionPool + Sync + Send + 'static,
 {
