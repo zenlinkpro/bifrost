@@ -138,7 +138,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("bifrost_polkadot"),
 	impl_name: create_runtime_str!("bifrost_polkadot"),
 	authoring_version: 0,
-	spec_version: 958,
+	spec_version: 959,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -831,11 +831,6 @@ impl pallet_transaction_payment::Config for Runtime {
 	type WeightToFee = IdentityFee<Balance>;
 }
 
-impl pallet_sudo::Config for Runtime {
-	type Call = Call;
-	type Event = Event;
-}
-
 // culumus runtime start
 parameter_types! {
 	pub const ReservedXcmpWeight: Weight = MAXIMUM_BLOCK_WEIGHT / 4;
@@ -1395,7 +1390,7 @@ impl bifrost_salp::Config for Runtime {
 	type RemoveKeysLimit = RemoveKeysLimit;
 	type SlotLength = SlotLength;
 	type VSBondValidPeriod = VSBondValidPeriod;
-	type WeightInfo = ();
+	type WeightInfo = bifrost_salp::weights::BifrostWeight<Runtime>;
 	type EnsureConfirmAsGovernance =
 		EitherOfDiverse<MoreThanHalfCouncil, EnsureRootOrAllTechnicalCommittee>;
 	type XcmInterface = XcmInterface;
@@ -1410,13 +1405,14 @@ impl bifrost_salp::Config for Runtime {
 impl bifrost_call_switchgear::Config for Runtime {
 	type Event = Event;
 	type UpdateOrigin = EitherOfDiverse<MoreThanHalfCouncil, EnsureRootOrAllTechnicalCommittee>;
-	type WeightInfo = ();
+	type WeightInfo = bifrost_call_switchgear::weights::BifrostWeight<Runtime>;
 }
 
 impl bifrost_asset_registry::Config for Runtime {
 	type Event = Event;
 	type Currency = Balances;
 	type RegisterOrigin = MoreThanHalfCouncil;
+	type WeightInfo = bifrost_asset_registry::weights::BifrostWeight<Runtime>;
 }
 
 parameter_types! {
@@ -1513,7 +1509,7 @@ impl bifrost_farming::Config for Runtime {
 	type TreasuryAccount = BifrostTreasuryAccount;
 	type Keeper = FarmingKeeperPalletId;
 	type RewardIssuer = FarmingRewardIssuerPalletId;
-	type WeightInfo = ();
+	type WeightInfo = bifrost_farming::weights::BifrostWeight<Runtime>;
 }
 
 impl bifrost_system_maker::Config for Runtime {
@@ -1719,7 +1715,6 @@ construct_runtime! {
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>} = 0,
 		Timestamp: pallet_timestamp::{Pallet, Call, Storage, Inherent} = 1,
 		Indices: pallet_indices::{Pallet, Call, Storage, Config<T>, Event<T>} = 2,
-		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>} = 3,
 		ParachainSystem: cumulus_pallet_parachain_system::{Pallet, Call, Config, Storage, Inherent, Event<T>, ValidateUnsigned} = 5,
 		ParachainInfo: parachain_info::{Pallet, Storage, Config} = 6,
 
@@ -1838,8 +1833,8 @@ extern crate frame_benchmarking;
 mod benches {
 	define_benchmarks!(
 		[pallet_vesting, Vesting]
-		[bifrost_call_switchgear, CallSwitchgear],
-		[bifrost_vtoken_minting, VtokenMinting],
+		[bifrost_call_switchgear, CallSwitchgear]
+		[bifrost_vtoken_minting, VtokenMinting]
 		[bifrost_slp, Slp]
 		[bifrost_salp, Salp]
 	);

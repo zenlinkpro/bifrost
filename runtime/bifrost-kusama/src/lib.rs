@@ -124,7 +124,6 @@ use zenlink_stable_amm::traits::{StableAmmApi, StablePoolLpCurrencyIdGenerate, V
 // Weights used in the runtime.
 // mod weights;
 
-mod migrations;
 mod xcm_config;
 
 use xcm_config::{
@@ -144,7 +143,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
 	spec_name: create_runtime_str!("bifrost"),
 	impl_name: create_runtime_str!("bifrost"),
 	authoring_version: 1,
-	spec_version: 958,
+	spec_version: 959,
 	impl_version: 0,
 	apis: RUNTIME_API_VERSIONS,
 	transaction_version: 1,
@@ -1745,6 +1744,7 @@ impl bifrost_asset_registry::Config for Runtime {
 	type Event = Event;
 	type Currency = Balances;
 	type RegisterOrigin = MoreThanHalfCouncil;
+	type WeightInfo = bifrost_asset_registry::weights::BifrostWeight<Runtime>;
 }
 
 parameter_types! {
@@ -2198,7 +2198,7 @@ construct_runtime! {
 		SalpLite: bifrost_salp_lite::{Pallet, Call, Storage, Event<T>, Config<T>} = 111,
 		CallSwitchgear: bifrost_call_switchgear::{Pallet, Storage, Call, Event<T>} = 112,
 		VSBondAuction: bifrost_vsbond_auction::{Pallet, Call, Storage, Event<T>} = 113,
-		AssetRegistry: bifrost_asset_registry::{Pallet, Call, Storage, Event<T>} = 114,
+		AssetRegistry: bifrost_asset_registry::{Pallet, Call, Storage, Event<T>, Config<T>} = 114,
 		VtokenMinting: bifrost_vtoken_minting::{Pallet, Call, Storage, Event<T>} = 115,
 		Slp: bifrost_slp::{Pallet, Call, Storage, Event<T>} = 116,
 		XcmInterface: xcm_interface::{Pallet, Call, Storage, Event<T>} = 117,
@@ -2251,7 +2251,7 @@ pub type Executive = frame_executive::Executive<
 	frame_system::ChainContext<Runtime>,
 	Runtime,
 	AllPalletsWithSystem,
-	migrations::AssetRegistryMigration<Runtime>,
+	(),
 >;
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -2274,6 +2274,7 @@ mod benches {
 		[bifrost_farming, Farming]
 		[bifrost_system_staking, SystemStaking]
 		[bifrost_slp, Slp]
+		[bifrost_asset_registry, AssetRegistry]
 	);
 }
 

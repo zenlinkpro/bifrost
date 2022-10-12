@@ -498,6 +498,7 @@ dependencies = [
 name = "bifrost-asset-registry"
 version = "0.8.0"
 dependencies = [
+ "frame-benchmarking",
  "frame-support",
  "frame-system",
  "log",
@@ -1007,7 +1008,6 @@ dependencies = [
  "pallet-proxy",
  "pallet-scheduler",
  "pallet-session",
- "pallet-sudo",
  "pallet-timestamp",
  "pallet-tips",
  "pallet-transaction-payment",
@@ -1246,6 +1246,7 @@ version = "4.0.0-dev"
 dependencies = [
  "bifrost-asset-registry",
  "bifrost-farming",
+ "bifrost-runtime-common",
  "bifrost-slp",
  "bifrost-vtoken-minting",
  "cumulus-primitives-core",
@@ -5558,7 +5559,7 @@ dependencies = [
 
 [[package]]
 name = "node-cli"
-version = "0.9.58"
+version = "0.9.59"
 dependencies = [
  "clap",
  "cumulus-client-cli",
