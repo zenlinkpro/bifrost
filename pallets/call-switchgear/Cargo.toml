@@ -21,7 +21,7 @@ orml-traits = "0.4.1-dev"
 orml-tokens = "0.4.1-dev"
 sp-core = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.28" }
 pallet-balances = { git = "https://github.com/paritytech/substrate", branch = "polkadot-v0.9.28" }
-smallvec = "1.9.0"
+smallvec = "1.10.0"
 
 
 [features]
